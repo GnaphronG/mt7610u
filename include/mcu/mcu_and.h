@@ -92,8 +92,6 @@ struct mt7610u_mcu_ctrl {
 	DL_LIST ackq;
 	spinlock_t kickq_lock;
 	DL_LIST kickq;
-	spinlock_t tx_doneq_lock;
-	DL_LIST tx_doneq;
 	spinlock_t rx_doneq_lock;
 	DL_LIST rx_doneq;
 	unsigned long tx_kickout_fail_count;
@@ -240,10 +238,7 @@ struct mcu_skb_data {
 
 int mt7610u_mcu_usb_loadfw(struct rtmp_adapter *ad);
 void mt7610u_mcu_ctrl_init(struct rtmp_adapter *ad);
-void mt7610u_mcu_ctrl_enable(struct rtmp_adapter *ad);
-void mt7610u_mcu_ctrl_disable(struct rtmp_adapter *ad);
 void mt7610u_mcu_ctrl_exit(struct rtmp_adapter *ad);
-int mt7610u_mcu_send_cmd_msg(struct rtmp_adapter *ad, struct cmd_msg *msg);
 int mt7610u_mcu_burst_write(struct rtmp_adapter *ad, u32 offset, u32 *data, u32 cnt);
 int mt7610u_mcu_random_read(struct rtmp_adapter *ad, struct rtmp_reg_pair *reg_pair, u32 num);
 int mt7610u_mcu_rf_random_read(struct rtmp_adapter *ad, BANK_RF_REG_PAIR *reg_pair, u32 num);
@@ -252,7 +247,10 @@ int mt7610u_mcu_rf_random_write(struct rtmp_adapter *ad, BANK_RF_REG_PAIR *reg_p
 int mt7610u_mcu_fun_set(struct rtmp_adapter *ad, u32 fun_id, u32 param);
 int mt7610u_mcu_calibration(struct rtmp_adapter *ad, enum mt7610u_mcu_calibration cal_id, u32 param);
 int mt7610u_mcu_led_op(struct rtmp_adapter *ad, u32 led_idx, u32 link_status);
-void mt7610u_mcu_cmd_msg_bh(unsigned long param);
 int usb_rx_cmd_msgs_receive(struct rtmp_adapter *ad);
-void mt7610u_mcu_bh_schedule(struct rtmp_adapter *ad);
+
+#define MT_INBAND_PACKET_MAX_LEN	192	/* must be 48 multible */
+#define MT_COMMAND_BULK_OUT_ADDR	0x8
+#define MT_COMMAND_RSP_BULK_IN_ADDR	0x85
+
 #endif
