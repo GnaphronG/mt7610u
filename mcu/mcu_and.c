@@ -27,6 +27,7 @@
 
 #include	"rt_config.h"
 #include <linux/firmware.h>
+#include "bitfield.h"
 
 
 
@@ -42,11 +43,68 @@
 
 static void mt7610u_mcu_bh_schedule(struct rtmp_adapter *ad);
 
-static void usb_uploadfw_complete(struct urb *urb)
-{
-	struct completion *load_fw_done = urb->context;
+#define MT_DMA_HDR_LEN			4
+#define MT_TXD_INFO_LEN			GENMASK(15, 0)
+#define MT_TXD_CMD_INFO_SEQ            	GENMASK(19, 16)
+#define MT_TXD_CMD_INFO_TYPE            GENMASK(26, 20)
+#define MT_TXD_INFO_D_PORT		GENMASK(29, 27)
+#define MT_TXD_INFO_TYPE		GENMASK(31, 30)
 
-	complete(load_fw_done);
+struct mt7610u_dma_buf {
+	struct urb *urb;
+	void *buf;
+	dma_addr_t dma;
+	size_t len;
+};
+
+bool mt7610u_usb_alloc_buf(struct rtmp_adapter *ad, size_t len,
+			   struct mt7610u_dma_buf *buf)
+{
+	struct usb_device *usb_dev = mt7610u_to_usb_dev(ad);
+
+	buf->len = len;
+	buf->urb = usb_alloc_urb(0, GFP_KERNEL);
+	buf->buf = usb_alloc_coherent(usb_dev, buf->len, GFP_KERNEL, &buf->dma);
+
+	return !buf->urb || !buf->buf;
+}
+
+void mt7610u_usb_free_buf(struct rtmp_adapter *ad, struct mt7610u_dma_buf *buf)
+{
+	struct usb_device *usb_dev = mt7610u_to_usb_dev(ad);
+
+	usb_free_coherent(usb_dev, buf->len, buf->buf, buf->dma);
+	usb_free_urb(buf->urb);
+}
+
+inline int mt7610u_dma_skb_wrap(struct sk_buff *skb,
+				       enum D_PORT d_port,
+				       enum INFO_TYPE type, u32 flags)
+{
+	u32 info;
+
+	/* Buffer layout:
+	 *	|   4B   | xfer len |      pad       |  4B  |
+	 *	| TXINFO | pkt/cmd  | zero pad to 4B | zero |
+	 *
+	 * length field of TXINFO should be set to 'xfer len'.
+	 */
+
+	info = flags |
+		FIELD_PREP(MT_TXD_INFO_LEN, round_up(skb->len, 4)) |
+		FIELD_PREP(MT_TXD_INFO_D_PORT, d_port) |
+		FIELD_PREP(MT_TXD_INFO_TYPE, type);
+
+	put_unaligned_le32(info, skb_push(skb, sizeof(info)));
+	return skb_put_padto(skb, round_up(skb->len, 4) + 4);
+}
+
+static inline void mt7610u_dma_skb_wrap_cmd(struct sk_buff *skb,
+					    u8 seq, enum mcu_cmd_type cmd)
+{
+	WARN_ON(mt7610u_dma_skb_wrap(skb, CPU_TX_PORT, CMD_PACKET,
+				     FIELD_PREP(MT_TXD_CMD_INFO_SEQ, seq) |
+				     FIELD_PREP(MT_TXD_CMD_INFO_TYPE, cmd)));
 }
 
 static int usb_load_ivb(struct rtmp_adapter *ad, u8 *fw_image)
@@ -101,22 +159,139 @@ static void mt7610u_vendor_reset(struct rtmp_adapter *pAd)
 		NULL, 0);
 }
 
+void mt7610u_complete_urb(struct urb *urb)
+{
+	struct completion *cmpl = urb->context;
+
+	complete(cmpl);
+}
+
+static int __mt7610u_dma_fw(struct rtmp_adapter *ad,
+			    const struct mt7610u_dma_buf *dma_buf,
+			    const void *data, u32 len, u32 dst_addr)
+{
+	DECLARE_COMPLETION_ONSTACK(cmpl);
+	struct mt7610u_dma_buf buf = *dma_buf; /* we need to fake length */
+	struct usb_device *udev = mt7610u_to_usb_dev(ad);
+	u16 value;
+	u32 mac_value;
+	int ret = 0;
+	__le32 reg;
+
+	reg = cpu_to_le32(FIELD_PREP(MT_TXD_INFO_TYPE, CMD_PACKET) |
+			  FIELD_PREP(MT_TXD_INFO_D_PORT, CPU_TX_PORT) |
+			  FIELD_PREP(MT_TXD_INFO_LEN, len));
+
+	memmove(buf.buf, &reg, sizeof(reg));
+	memmove(buf.buf + sizeof(reg), data, len);
+
+	/* four zero bytes for end padding */
+	memset(buf.buf + sizeof(reg) + len, 0, USB_END_PADDING);
+
+	value = dst_addr & 0xFFFF;
+
+	/* Set FCE DMA descriptor */
+	ret = mt7610u_vendor_request(ad,
+			 DEVICE_VENDOR_REQUEST_OUT,
+			 MT7610U_VENDOR_WRITE_FCE,
+			 value, 0x230,
+			 NULL, 0);
+
+
+	if (ret) {
+		DBGPRINT(RT_DEBUG_ERROR, ("set fce dma descriptor fail\n"));
+		return ret;
+	}
+
+	value = ((dst_addr & 0xFFFF0000) >> 16);
+
+	/* Set FCE DMA descriptor */
+	ret = mt7610u_vendor_request(ad,
+			 DEVICE_VENDOR_REQUEST_OUT,
+			 MT7610U_VENDOR_WRITE_FCE,
+			 value, 0x232,
+			 NULL, 0);
+
+	if (ret) {
+		DBGPRINT(RT_DEBUG_ERROR, ("set fce dma descriptor fail\n"));
+		return ret;
+	}
+
+	len = roundup(len, 4);
+
+	value = ((len << 16) & 0xFFFF);
+
+	/* Set FCE DMA length */
+	ret = mt7610u_vendor_request(ad,
+			 DEVICE_VENDOR_REQUEST_OUT,
+			 MT7610U_VENDOR_WRITE_FCE,
+			 value, 0x234,
+			 NULL, 0);
+
+	if (ret) {
+		DBGPRINT(RT_DEBUG_ERROR, ("set fce dma length fail\n"));
+		return ret;
+	}
+
+	value = (((len << 16) & 0xFFFF0000) >> 16);
+
+	/* Set FCE DMA length */
+	ret = mt7610u_vendor_request(ad,
+			 DEVICE_VENDOR_REQUEST_OUT,
+			 MT7610U_VENDOR_WRITE_FCE,
+			 value, 0x236,
+			 NULL, 0);
+
+	if (ret) {
+		DBGPRINT(RT_DEBUG_ERROR, ("set fce dma length fail\n"));
+		return ret;
+	}
+
+	/* Initialize URB descriptor */
+	RTUSB_FILL_HTTX_BULK_URB(buf.urb,
+			 udev,
+			 MT_COMMAND_BULK_OUT_ADDR,
+			 buf.buf,
+			 len + sizeof(reg) + USB_END_PADDING,
+			 mt7610u_complete_urb,
+			 &cmpl,
+			 buf.dma);
+
+	ret = usb_submit_urb(buf.urb, GFP_ATOMIC);
+
+	if (ret) {
+		DBGPRINT(RT_DEBUG_ERROR, ("__mt7610u_dma_fw() submit urb fail\n"));
+
+	}
+
+	if (!wait_for_completion_timeout(&cmpl,  msecs_to_jiffies(UPLOAD_FW_TIMEOUT))) {
+		usb_kill_urb(buf.urb);
+		DBGPRINT(RT_DEBUG_ERROR, ("__mt7610u_dma_fw() timeout(%dms)\n",
+			UPLOAD_FW_TIMEOUT));
+
+		return ret;
+	}
+	DBGPRINT(RT_DEBUG_OFF, ("."));
+
+	mac_value = mt7610u_read32(ad, TX_CPU_PORT_FROM_FCE_CPU_DESC_INDEX);
+	mac_value++;
+	mt7610u_write32(ad, TX_CPU_PORT_FROM_FCE_CPU_DESC_INDEX, mac_value);
+
+	mdelay(5);
+
+	return 0;
+}
+
 int mt7610u_mcu_usb_loadfw(struct rtmp_adapter *ad)
 {
 	const struct firmware *fw;
 	struct usb_device *udev = mt7610u_to_usb_dev(ad);
-	struct urb *urb;
-	dma_addr_t fw_dma;
-	u8 *fw_data;
-	struct txinfo_nmac_cmd *tx_info;
-	int sent_len;
-	u32 pos = 0;
+	struct mt7610u_dma_buf dma_buf;
+	int sent_len, pos = 0, ilm_len = 0, dlm_len = 0;
 	u32 mac_value, loop = 0;
-	u16 value;
 	int ret = 0;
 	struct rtmp_chip_cap *cap = &ad->chipCap;
 	USB_DMA_CFG_STRUC cfg;
-	u32 ilm_len = 0, dlm_len = 0;
 	u16 fw_ver, build_ver;
 	struct completion load_fw_done;
 	USB_DMA_CFG_STRUC UsbCfg;
@@ -217,21 +392,10 @@ loadfw_protect:
 		mt7610u_write32(ad, USB_DMA_CFG, UsbCfg.word);
 	}
 
-	/* Allocate URB */
-	urb = usb_alloc_urb(0, GFP_ATOMIC);
-
-	if (!urb) {
-		DBGPRINT(RT_DEBUG_ERROR, ("can not allocate URB\n"));
-		ret = NDIS_STATUS_RESOURCES;
-		goto error0;
-	}
-
 	/* Allocate TransferBuffer */
-	fw_data = usb_alloc_coherent(udev, UPLOAD_FW_UNIT, GFP_ATOMIC, &fw_dma);
-
-	if (!fw_data) {
-		ret = NDIS_STATUS_RESOURCES;
-		goto error1;
+	if (mt7610u_usb_alloc_buf(ad, UPLOAD_FW_UNIT, &dma_buf)) {
+		ret = -ENOMEM;
+		goto error0;
 	}
 
 	DBGPRINT(RT_DEBUG_OFF, ("loading fw"));
@@ -245,120 +409,18 @@ loadfw_protect:
 
 	/* Loading ILM */
 	while (1) {
-		s32 sent_len_max = UPLOAD_FW_UNIT - sizeof(*tx_info) - USB_END_PADDING;
+		s32 sent_len_max = UPLOAD_FW_UNIT - MT_DMA_HDR_LEN - USB_END_PADDING;
 
-		sent_len = ((ilm_len - pos) >=  sent_len_max) ?
-				sent_len_max : (ilm_len - pos);
+		sent_len = min(ilm_len - pos, sent_len_max);
 
 		if (sent_len > 0) {
-			tx_info = (struct txinfo_nmac_cmd *)fw_data;
-			tx_info->info_type = CMD_PACKET;
-			tx_info->pkt_len = sent_len;
-			tx_info->d_port = CPU_TX_PORT;
+			__mt7610u_dma_fw(ad, &dma_buf,
+					 fw_image + FW_INFO_SIZE + pos, sent_len,
+					 pos + cap->ilm_offset);
 
-#ifdef RT_BIG_ENDIAN
-			RTMPDescriptorEndianChange((u8 *)tx_info, TYPE_TXINFO);
-#endif
-			memmove(fw_data + sizeof(*tx_info), fw_image + FW_INFO_SIZE + pos, sent_len);
-
-			/* four zero bytes for end padding */
-			memset(fw_data + sizeof(*tx_info) + sent_len, 0, USB_END_PADDING);
-
-			value = (pos + cap->ilm_offset) & 0xFFFF;
-
-			/* Set FCE DMA descriptor */
-			ret = mt7610u_vendor_request(ad,
-					 DEVICE_VENDOR_REQUEST_OUT,
-					 MT7610U_VENDOR_WRITE_FCE,
-					 value, 0x230,
-					 NULL, 0);
-
-
-			if (ret) {
-				DBGPRINT(RT_DEBUG_ERROR, ("set fce dma descriptor fail\n"));
-				goto error2;
-			}
-
-			value = (((pos + cap->ilm_offset) & 0xFFFF0000) >> 16);
-
-			/* Set FCE DMA descriptor */
-			ret = mt7610u_vendor_request(ad,
-					 DEVICE_VENDOR_REQUEST_OUT,
-					 MT7610U_VENDOR_WRITE_FCE,
-					 value, 0x232,
-					 NULL, 0);
-
-			if (ret) {
-				DBGPRINT(RT_DEBUG_ERROR, ("set fce dma descriptor fail\n"));
-				goto error2;
-			}
 
 			pos += sent_len;
 
-			sent_len = roundup(sent_len, 4);
-
-			value = ((sent_len << 16) & 0xFFFF);
-
-			/* Set FCE DMA length */
-			ret = mt7610u_vendor_request(ad,
-					 DEVICE_VENDOR_REQUEST_OUT,
-					 MT7610U_VENDOR_WRITE_FCE,
-					 value, 0x234,
-					 NULL, 0);
-
-			if (ret) {
-				DBGPRINT(RT_DEBUG_ERROR, ("set fce dma length fail\n"));
-				goto error2;
-			}
-
-			value = (((sent_len << 16) & 0xFFFF0000) >> 16);
-
-			/* Set FCE DMA length */
-			ret = mt7610u_vendor_request(ad,
-					 DEVICE_VENDOR_REQUEST_OUT,
-					 MT7610U_VENDOR_WRITE_FCE,
-					 value, 0x236,
-					 NULL, 0);
-
-			if (ret) {
-				DBGPRINT(RT_DEBUG_ERROR, ("set fce dma length fail\n"));
-				goto error2;
-			}
-
-			/* Initialize URB descriptor */
-			RTUSB_FILL_HTTX_BULK_URB(urb,
-					 udev,
-					 MT_COMMAND_BULK_OUT_ADDR,
-					 fw_data,
-					 sent_len + sizeof(*tx_info) + USB_END_PADDING,
-					 usb_uploadfw_complete,
-					 &load_fw_done,
-					 fw_dma);
-
-			ret = usb_submit_urb(urb, GFP_ATOMIC);
-
-			if (ret) {
-				DBGPRINT(RT_DEBUG_ERROR, ("submit urb fail\n"));
-				goto error2;
-			}
-
-			if (!wait_for_completion_timeout(&load_fw_done,  msecs_to_jiffies(UPLOAD_FW_TIMEOUT))) {
-				usb_kill_urb(urb);
-				ret = NDIS_STATUS_FAILURE;
-				DBGPRINT(RT_DEBUG_ERROR, ("upload fw timeout(%dms)\n",
-					UPLOAD_FW_TIMEOUT));
-				DBGPRINT(RT_DEBUG_ERROR, ("%s: submit urb, sent_len = %d, ilm_ilm = %d, pos = %d\n",
-					__func__, sent_len, ilm_len, pos));
-
-				goto error2;
-			}
-			DBGPRINT(RT_DEBUG_OFF, ("."));
-
-			mac_value = mt7610u_read32(ad, TX_CPU_PORT_FROM_FCE_CPU_DESC_INDEX);
-			mac_value++;
-			mt7610u_write32(ad, TX_CPU_PORT_FROM_FCE_CPU_DESC_INDEX, mac_value);
-
-			mdelay(5);
 		} else {
 			break;
 		}
@@ -369,115 +431,16 @@ loadfw_protect:
 
 	/* Loading DLM */
 	while (1) {
-		s32 sent_len_max = UPLOAD_FW_UNIT - sizeof(*tx_info) - USB_END_PADDING;
+		s32 sent_len_max = UPLOAD_FW_UNIT - sizeof(__le32) - USB_END_PADDING;
 
-		sent_len = (dlm_len - pos) >= sent_len_max ? sent_len_max : (dlm_len - pos);
+		sent_len = min(dlm_len - pos, sent_len_max);
 
 		if (sent_len > 0) {
-			tx_info = (struct txinfo_nmac_cmd *)fw_data;
-			tx_info->info_type = CMD_PACKET;
-			tx_info->pkt_len = sent_len;
-			tx_info->d_port = CPU_TX_PORT;
-
-#ifdef RT_BIG_ENDIAN
-			RTMPDescriptorEndianChange((u8 *)tx_info, TYPE_TXINFO);
-#endif
-			memmove(fw_data + sizeof(*tx_info), fw_image + FW_INFO_SIZE + ilm_len + pos, sent_len);
-
-			memset(fw_data + sizeof(*tx_info) + sent_len, 0, USB_END_PADDING);
-
-			value = ((pos + cap->dlm_offset) & 0xFFFF);
-
-			/* Set FCE DMA descriptor */
-			ret = mt7610u_vendor_request(ad,
-					 DEVICE_VENDOR_REQUEST_OUT,
-					 MT7610U_VENDOR_WRITE_FCE,
-					 value, 0x230,
-					 NULL, 0);
-
-
-			if (ret) {
-				DBGPRINT(RT_DEBUG_ERROR, ("set fce dma descriptor fail\n"));
-				goto error2;
-			}
-
-			value = (((pos + cap->dlm_offset) & 0xFFFF0000) >> 16);
-
-			/* Set FCE DMA descriptor */
-			ret = mt7610u_vendor_request(ad,
-					  DEVICE_VENDOR_REQUEST_OUT,
-					  MT7610U_VENDOR_WRITE_FCE,
-					  value, 0x232,
-					  NULL, 0);
-
-			if (ret) {
-				DBGPRINT(RT_DEBUG_ERROR, ("set fce dma descriptor fail\n"));
-				goto error2;
-			}
+			__mt7610u_dma_fw(ad, &dma_buf,
+					 fw_image + FW_INFO_SIZE + ilm_len + pos, sent_len,
+					 pos + cap->dlm_offset);
 
 			pos += sent_len;
-
-			sent_len = roundup(sent_len, 4);
-
-			value = ((sent_len << 16) & 0xFFFF);
-
-			/* Set FCE DMA length */
-			ret = mt7610u_vendor_request(ad,
-					  DEVICE_VENDOR_REQUEST_OUT,
-					  MT7610U_VENDOR_WRITE_FCE,
-					  value, 0x234,
-					  NULL, 0);
-
-			if (ret) {
-				DBGPRINT(RT_DEBUG_ERROR, ("set fce dma length fail\n"));
-				goto error2;
-			}
-
-			value = (((sent_len << 16) & 0xFFFF0000) >> 16);
-
-			/* Set FCE DMA length */
-			ret = mt7610u_vendor_request(ad,
-					  DEVICE_VENDOR_REQUEST_OUT,
-					  MT7610U_VENDOR_WRITE_FCE,
-					  value, 0x236,
-					  NULL, 0);
-
-			if (ret) {
-				DBGPRINT(RT_DEBUG_ERROR, ("set fce dma length fail\n"));
-				goto error2;
-			}
-
-			/* Initialize URB descriptor */
-			RTUSB_FILL_HTTX_BULK_URB(urb,
-					 udev,
-					 MT_COMMAND_BULK_OUT_ADDR,
-					 fw_data,
-					 sent_len + sizeof(*tx_info) + USB_END_PADDING,
-					 usb_uploadfw_complete,
-					 &load_fw_done,
-					 fw_dma);
-
-			ret = usb_submit_urb(urb, GFP_ATOMIC);
-
-			if (ret) {
-				DBGPRINT(RT_DEBUG_ERROR, ("submit urb fail\n"));
-				goto error2;
-			}
-
-			if (!wait_for_completion_timeout(&load_fw_done, msecs_to_jiffies(UPLOAD_FW_TIMEOUT))) {
-				usb_kill_urb(urb);
-				ret = NDIS_STATUS_FAILURE;
-				DBGPRINT(RT_DEBUG_ERROR, ("upload fw timeout(%dms)\n", UPLOAD_FW_TIMEOUT));
-				DBGPRINT(RT_DEBUG_INFO, ("%s: submit urb, sent_len = %d, dlm_len = %d, pos = %d\n", __func__, sent_len, dlm_len, pos));
-
-				goto error2;
-			}
-			DBGPRINT(RT_DEBUG_OFF, ("."));
-
-			mac_value = mt7610u_read32(ad, TX_CPU_PORT_FROM_FCE_CPU_DESC_INDEX);
-			mac_value++;
-			mt7610u_write32(ad, TX_CPU_PORT_FROM_FCE_CPU_DESC_INDEX, mac_value);
-			mdelay(5);
 		} else {
 			break;
 		}
@@ -505,11 +468,7 @@ loadfw_protect:
 
 error2:
 	/* Free TransferBuffer */
-	usb_free_coherent(udev, UPLOAD_FW_UNIT, fw_data, fw_dma);
-
-error1:
-	/* Free URB */
-	usb_free_urb(urb);
+	mt7610u_usb_free_buf(ad, &dma_buf);
 
 error0:
 	release_firmware(fw);
@@ -525,18 +484,20 @@ error0:
 static struct cmd_msg *mt7610u_mcu_alloc_cmd_msg(struct rtmp_adapter *ad, unsigned int length)
 {
 	struct cmd_msg *msg = NULL;
-	struct rtmp_chip_cap *cap = &ad->chipCap;
-	struct mt7610u_mcu_ctrl *ctl = &ad->MCUCtrl;
 	struct urb *urb = NULL;
 
-	struct sk_buff *skb = dev_alloc_skb(cap->cmd_header_len + length + cap->cmd_padding_len);
+	/* ULLI :
+	 * orignal drver used 4 bytes padding, we need 8 bytes due
+	 * skb_panic in skb_put() mt7610u_dma_skb_wrap_cmd()
+	 * wll check ths later on */
+	struct sk_buff *skb = dev_alloc_skb(MT_DMA_HDR_LEN + length + 8);
 
 	if (!skb) {
 		DBGPRINT(RT_DEBUG_ERROR, ("can not allocate net_pkt\n"));
 		goto error0;
 	}
 
-	skb_reserve(skb, cap->cmd_header_len);
+	skb_reserve(skb, MT_DMA_HDR_LEN);
 
 	msg = kmalloc(sizeof(*msg), GFP_ATOMIC);
 
@@ -600,7 +561,6 @@ static void mt7610u_mcu_append_cmd_msg(struct cmd_msg *msg, char *data, unsigned
 static void mt7610u_mcu_free_cmd_msg(struct cmd_msg *msg)
 {
 	struct sk_buff *skb = msg->skb;
-	struct rtmp_adapter *ad = msg->priv;
 
 	usb_free_urb(msg->urb);
 	kfree(msg);
@@ -805,10 +765,8 @@ static void usb_rx_cmd_msg_complete(struct urb *urb)
 	struct cmd_msg *msg = CMD_MSG_CB(skb)->msg;
 	struct rtmp_adapter *ad = msg->priv;
 	struct usb_device *udev = mt7610u_to_usb_dev(ad);
-	struct rtmp_chip_cap *pChipCap = &ad->chipCap;
 	struct mt7610u_mcu_ctrl *ctl = &ad->MCUCtrl;
 	enum cmd_msg_state state;
-	unsigned long flags;
 	int ret = 0;
 
 	mt7610u_mcu_unlink_cmd_msg(msg, &ctl->rxq);
@@ -861,7 +819,6 @@ static void usb_rx_cmd_msg_complete(struct urb *urb)
 
 static int usb_rx_cmd_msg_submit(struct rtmp_adapter *ad)
 {
-	struct rtmp_chip_cap *pChipCap = &ad->chipCap;
 	struct usb_device *udev = mt7610u_to_usb_dev(ad);
 	struct mt7610u_mcu_ctrl *ctl = &ad->MCUCtrl;
 	struct cmd_msg *msg = NULL;
@@ -1004,7 +961,6 @@ static int usb_kick_out_cmd_msg(struct rtmp_adapter *ad, struct cmd_msg *msg)
 	int pipe;
 	int ret = 0;
 	struct sk_buff *skb = msg->skb;
-	struct rtmp_chip_cap *pChipCap = &ad->chipCap;
 
 	/* append four zero bytes padding when usb aggregate enable */
 	memset(skb_put(skb, 4), 0x00, 4);
@@ -1161,7 +1117,6 @@ static int mt7610u_mcu_dequeue_and_kick_out_cmd_msgs(struct rtmp_adapter *ad)
 	struct sk_buff *skb = NULL;
 	struct mt7610u_mcu_ctrl *ctl = &ad->MCUCtrl;
 	int ret = NDIS_STATUS_SUCCESS;
-	struct txinfo_nmac_cmd *tx_info;
 
 	while (1) {
 		bool tmp;
@@ -1192,16 +1147,7 @@ static int mt7610u_mcu_dequeue_and_kick_out_cmd_msgs(struct rtmp_adapter *ad)
 		else
 			msg->seq = 0;
 
-		tx_info = (struct txinfo_nmac_cmd *)skb_push(skb, sizeof(*tx_info));
-		tx_info->info_type = CMD_PACKET;
-		tx_info->d_port = CPU_TX_PORT;
-		tx_info->cmd_type = msg->type;
-		tx_info->cmd_seq = msg->seq;
-		tx_info->pkt_len = skb->len - sizeof(*tx_info);
-
-#ifdef RT_BIG_ENDIAN
-		RTMPDescriptorEndianChange((u8 *)tx_info, TYPE_TXINFO);
-#endif
+		mt7610u_dma_skb_wrap_cmd(skb, msg->seq, msg->type);
 
 		ret = usb_kick_out_cmd_msg(ad, msg);
 
@@ -1351,7 +1297,6 @@ int mt7610u_mcu_rf_random_read(struct rtmp_adapter *ad, BANK_RF_REG_PAIR *reg_pa
 	struct cmd_msg *msg;
 	unsigned int var_len = num * 8, pos = 0, receive_len;
 	u32 i, value, cur_index = 0;
-	struct rtmp_chip_cap *cap = &ad->chipCap;
 	int ret = 0;
 
 	if (!reg_pair)
@@ -1463,7 +1408,6 @@ int mt7610u_mcu_rf_random_write(struct rtmp_adapter *ad, BANK_RF_REG_PAIR *reg_p
 	struct cmd_msg *msg;
 	unsigned int var_len = num * 8, pos = 0, sent_len;
 	u32 value, i, cur_index = 0;
-	struct rtmp_chip_cap *cap = &ad->chipCap;
 	int ret = 0;
 	bool last_packet = false;
 
