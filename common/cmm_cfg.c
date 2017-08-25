@@ -769,24 +769,6 @@ INT RTMP_COM_IoctlHandle(
 #endif /* EXT_BUILD_CHANNEL_LIST */
 
 
-		case CMD_RTPRIV_IOCTL_USB_CONFIG_INIT:
-		{
-			RT_CMD_USB_DEV_CONFIG *pConfig;
-			u32 i;
-			pConfig = (RT_CMD_USB_DEV_CONFIG *)pData;
-
-			pAd->NumberOfPipes = pConfig->NumberOfPipes;
-			pAd->BulkInMaxPacketSize = pConfig->BulkInMaxPacketSize;
-			pAd->BulkOutMaxPacketSize = pConfig->BulkOutMaxPacketSize;
-
-			for (i = 0; i < 6; i++)
-				pAd->BulkOutEpAddr[i] = pConfig->BulkOutEpAddr[i];
-
-			for (i = 0; i < 2; i++)
-				pAd->BulkInEpAddr[i] = pConfig->BulkInEpAddr[i];
-		}
-			break;
-
 		case CMD_RTPRIV_IOCTL_USB_SUSPEND:
 			pAd->PM_FlgSuspend = 1;
 			if (Data)
