@@ -26,8 +26,16 @@
 
 
 #include "rt_config.h"
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,9,0))
+#include <linux/bitfield.h>
+#else
+/* Force a compilation error if a constant expression is not a power of 2 */
+#define __BUILD_BUG_ON_NOT_POWER_OF_2(n)	\
+	BUILD_BUG_ON(((n) & ((n) - 1)) != 0)
+#define BUILD_BUG_ON_NOT_POWER_OF_2(n)			\
+	BUILD_BUG_ON((n) == 0 || (((n) & ((n) - 1)) != 0))
 #include <bitfield.h>
-
+#endif
 
 
 #ifdef CONFIG_STA_SUPPORT
@@ -103,7 +111,6 @@ void AsicUpdateAutoFallBackTable(
 					}
 				}
 				break;
-#ifdef DOT11_N_SUPPORT
 			case 2:		/* HT-MIX */
 			case 3:		/* HT-GF */
 				{
@@ -168,7 +175,6 @@ void AsicUpdateAutoFallBackTable(
 					}
 				}
 				break;
-#endif /* DOT11_N_SUPPORT */
 		}
 
 		pNextTxRate = pCurrTxRate;
@@ -229,7 +235,6 @@ void AsicUpdateProtect(
 	u32 i, PhyMode = 0x4000;
 	u32 MacReg = 0;
 
-#ifdef DOT11_N_SUPPORT
 	if (!(pAd->CommonCfg.bHTProtect) && (OperationMode != 8))
 		return;
 
@@ -239,16 +244,13 @@ void AsicUpdateProtect(
 		SetMask |= ALLN_SETPROTECT;
 		OperationMode = 8;
 	}
-#endif /* DOT11_N_SUPPORT */
 
 	/* Config ASIC RTS threshold register*/
 	MacReg = mt7610u_read32(pAd, TX_RTS_CFG);
 	MacReg &= 0xFF0000FF;
 	/* If the user want disable RtsThreshold and enbale Amsdu/Ralink-Aggregation, set the RtsThreshold as 4096*/
         if ((
-#ifdef DOT11_N_SUPPORT
 			(pAd->CommonCfg.BACapability.field.AmsduEnable) ||
-#endif /* DOT11_N_SUPPORT */
 			(pAd->CommonCfg.bAggregationCapable == true))
             && pAd->CommonCfg.RtsThreshold == MAX_RTS_THRESHOLD)
         {
@@ -318,7 +320,6 @@ void AsicUpdateProtect(
 		pAd->FlgCtsEnabled = 1; /* CTS-self is used */
 	}
 
-#ifdef DOT11_N_SUPPORT
 	/* Decide HT frame protection.*/
 	if ((SetMask & ALLN_SETPROTECT) != 0)
 	{
@@ -540,7 +541,6 @@ void AsicUpdateProtect(
 				break;
 		}
 	}
-#endif /* DOT11_N_SUPPORT */
 
 	offset = CCK_PROT_CFG;
 	for (i = 0;i < 6;i++)
@@ -733,7 +733,6 @@ void AsicSetBssid(
 }
 
 
-#ifdef DOT11_N_SUPPORT
 /*
 	==========================================================================
 	Description:
@@ -787,9 +786,7 @@ void AsicDisableRDG(
 	/*	Data |= 0x60;  for performance issue not set the TXOP to 0*/
 #endif
 	if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_DYNAMIC_BE_TXOP_ACTIVE)
-#ifdef DOT11_N_SUPPORT
 		&& (pAd->MacTab.fAnyStationMIMOPSDynamic == false)
-#endif /* DOT11_N_SUPPORT */
 	)
 	{
 		/* For CWC test, change txop from 0x30 to 0x20 in TxBurst mode*/
@@ -799,7 +796,6 @@ void AsicDisableRDG(
 	mt7610u_write32(pAd, EDCA_AC0_CFG, Data);
 
 }
-#endif /* DOT11_N_SUPPORT */
 
 /*
 	==========================================================================
@@ -1182,29 +1178,29 @@ void AsicSetEdcaParm(
 		{
 			DBGPRINT(RT_DEBUG_TRACE,("EDCA [#%d]: AIFSN CWmin CWmax  TXOP(us)  ACM\n", pEdcaParm->EdcaUpdateCount));
 			DBGPRINT(RT_DEBUG_TRACE,("     AC_BE      %2d     %2d     %2d      %4d     %d\n",
-									 pEdcaParm->Aifsn[0],
-									 pEdcaParm->Cwmin[0],
-									 pEdcaParm->Cwmax[0],
-									 pEdcaParm->Txop[0]<<5,
-									 pEdcaParm->bACM[0]));
+									 pEdcaParm->Aifsn[QID_AC_BE],
+									 pEdcaParm->Cwmin[QID_AC_BE],
+									 pEdcaParm->Cwmax[QID_AC_BE],
+									 pEdcaParm->Txop[QID_AC_BE]<<5,
+									 pEdcaParm->bACM[QID_AC_BE]));
 			DBGPRINT(RT_DEBUG_TRACE,("     AC_BK      %2d     %2d     %2d      %4d     %d\n",
-									 pEdcaParm->Aifsn[1],
-									 pEdcaParm->Cwmin[1],
-									 pEdcaParm->Cwmax[1],
-									 pEdcaParm->Txop[1]<<5,
-									 pEdcaParm->bACM[1]));
+									 pEdcaParm->Aifsn[QID_AC_BK],
+									 pEdcaParm->Cwmin[QID_AC_BK],
+									 pEdcaParm->Cwmax[QID_AC_BK],
+									 pEdcaParm->Txop[QID_AC_BK]<<5,
+									 pEdcaParm->bACM[QID_AC_BK]));
 			DBGPRINT(RT_DEBUG_TRACE,("     AC_VI      %2d     %2d     %2d      %4d     %d\n",
-									 pEdcaParm->Aifsn[2],
-									 pEdcaParm->Cwmin[2],
-									 pEdcaParm->Cwmax[2],
-									 pEdcaParm->Txop[2]<<5,
-									 pEdcaParm->bACM[2]));
+									 pEdcaParm->Aifsn[QID_AC_VI],
+									 pEdcaParm->Cwmin[QID_AC_VI],
+									 pEdcaParm->Cwmax[QID_AC_VI],
+									 pEdcaParm->Txop[QID_AC_VI]<<5,
+									 pEdcaParm->bACM[QID_AC_VI]));
 			DBGPRINT(RT_DEBUG_TRACE,("     AC_VO      %2d     %2d     %2d      %4d     %d\n",
-									 pEdcaParm->Aifsn[3],
-									 pEdcaParm->Cwmin[3],
-									 pEdcaParm->Cwmax[3],
-									 pEdcaParm->Txop[3]<<5,
-									 pEdcaParm->bACM[3]));
+									 pEdcaParm->Aifsn[QID_AC_VO],
+									 pEdcaParm->Cwmin[QID_AC_VO],
+									 pEdcaParm->Cwmax[QID_AC_VO],
+									 pEdcaParm->Txop[QID_AC_VO]<<5,
+									 pEdcaParm->bACM[QID_AC_VO]));
 		}
 
 	}
@@ -1250,9 +1246,7 @@ void 	AsicSetSlotTime(
 	{
 		/* force using short SLOT time for FAE to demo performance when TxBurst is ON*/
 		if (((pAd->StaActive.SupportedPhyInfo.bHtEnable == false) && (OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_WMM_INUSED)))
-#ifdef DOT11_N_SUPPORT
 			|| ((pAd->StaActive.SupportedPhyInfo.bHtEnable == true) && (pAd->CommonCfg.BACapability.field.Policy == BA_NOTUSE))
-#endif /* DOT11_N_SUPPORT */
 			)
 		{
 			/* In this case, we will think it is doing Wi-Fi test*/
@@ -1675,7 +1669,6 @@ void AsicTurnOffRFClk(
 		}
 }
 
-#ifdef DOT11_N_SUPPORT
 /*
 	==========================================================================
 	Description:
@@ -1715,9 +1708,7 @@ void AsicDisableRalinkBurstMode(
 	Data &= 0xFFFFFF00;
 
 	if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_DYNAMIC_BE_TXOP_ACTIVE)
-#ifdef DOT11_N_SUPPORT
 		&& (pAd->MacTab.fAnyStationMIMOPSDynamic == false)
-#endif // DOT11_N_SUPPORT //
 	)
 	{
 		if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_RDG_ACTIVE))
@@ -1727,7 +1718,6 @@ void AsicDisableRalinkBurstMode(
 	}
 	mt7610u_write32(pAd, EDCA_AC0_CFG, Data);
 }
-#endif // DOT11_N_SUPPORT //
 
 INT AsicSetPreTbttInt(struct rtmp_adapter*pAd, bool enable)
 {
@@ -1769,7 +1759,6 @@ bool AsicWaitPDMAIdle(struct rtmp_adapter *pAd, INT round, INT wait_us)
 }
 
 
-#ifdef DOT11_N_SUPPORT
 #define MAX_AGG_CNT	32
 INT AsicReadAggCnt(struct rtmp_adapter*pAd, ULONG *aggCnt, int cnt_len)
 {
@@ -1812,7 +1801,6 @@ INT AsicReadAggCnt(struct rtmp_adapter*pAd, ULONG *aggCnt, int cnt_len)
 	return true;
 }
 
-#endif /* DOT11_N_SUPPORT */
 
 
 INT AsicSetChannel(struct rtmp_adapter*pAd, u8 ch, u8 bw, u8 ext_ch, bool bScan)

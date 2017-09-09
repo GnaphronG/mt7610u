@@ -26,7 +26,16 @@
 
 
 #include	"rt_config.h"
-#include "bitfield.h"
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,9,0))
+#include <linux/bitfield.h>
+#else
+/* Force a compilation error if a constant expression is not a power of 2 */
+#define __BUILD_BUG_ON_NOT_POWER_OF_2(n)	\
+	BUILD_BUG_ON(((n) & ((n) - 1)) != 0)
+#define BUILD_BUG_ON_NOT_POWER_OF_2(n)			\
+	BUILD_BUG_ON((n) == 0 || (((n) & ((n) - 1)) != 0))
+#include <bitfield.h>
+#endif
 
 #define RT3090A_DEFAULT_INTERNAL_LNA_GAIN	0x0A
 u8 NUM_BIT8[] = {0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80};
@@ -435,13 +444,8 @@ void NICReadEEPROMParameters(struct rtmp_adapter*pAd)
 			DBGPRINT_RAW(RT_DEBUG_ERROR,
 						("%s():Err! chip not support 5G band (%d)!\n",
 						__FUNCTION__, pAd->RfIcType));
-#ifdef DOT11_N_SUPPORT
 			/* change to bgn mode */
 			Set_WirelessMode_Proc(pAd, "9");
-#else
-			/* change to bg mode */
-			Set_WirelessMode_Proc(pAd, "0");
-#endif /* DOT11_N_SUPPORT */
 			pAd->RFICType = RFIC_24GHZ;
 		}
 		pAd->RFICType = RFIC_24GHZ | RFIC_5GHZ;
@@ -1499,9 +1503,7 @@ ULONG	RTMPCompareMemory(
 void UserCfgExit(
 	IN struct rtmp_adapter*pAd)
 {
-#ifdef DOT11_N_SUPPORT
 	BATableExit(pAd);
-#endif /* DOT11_N_SUPPORT */
 }
 
 /*
@@ -1616,7 +1618,6 @@ void UserCfgInit(struct rtmp_adapter*pAd)
 
 	memset(&pAd->BeaconTxWI, 0, TXWISize);
 
-#ifdef DOT11_N_SUPPORT
 	memset(&pAd->CommonCfg.HtCapability, 0, sizeof(pAd->CommonCfg.HtCapability));
 	pAd->HTCEnable = false;
 	pAd->bBroadComHT = false;
@@ -1658,7 +1659,6 @@ void UserCfgInit(struct rtmp_adapter*pAd)
 		pAd->CommonCfg.TxBASize = 7;
 
 	pAd->CommonCfg.REGBACapability.word = pAd->CommonCfg.BACapability.word;
-#endif /* DOT11_N_SUPPORT */
 
 	/*pAd->CommonCfg.HTPhyMode.field.BW = BW_20;*/
 	/*pAd->CommonCfg.HTPhyMode.field.MCS = MCS_AUTO;*/
@@ -1809,9 +1809,7 @@ void UserCfgInit(struct rtmp_adapter*pAd)
 		pAd->StaCfg.bForceTxBurst = false;
 		pAd->StaCfg.bNotFirstScan = false;
 		pAd->StaCfg.bImprovedScan = false;
-#ifdef DOT11_N_SUPPORT
 		pAd->StaCfg.bAdhocN = true;
-#endif /* DOT11_N_SUPPORT */
 		pAd->StaCfg.bFastConnect = false;
 		pAd->StaCfg.bAdhocCreator = false;
 	}
