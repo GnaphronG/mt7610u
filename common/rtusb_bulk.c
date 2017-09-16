@@ -48,29 +48,25 @@ void RTUSBInitTxDesc(
 	IN	u8 		BulkOutPipeId,
 	IN	usb_complete_t	Func)
 {
-	struct urb *			pUrb;
-	u8 *			pSrc = NULL;
-	struct os_cookie *		pObj = pAd->OS_Cookie;
+	struct urb *urb;
+	u8 *pSrc = NULL;
+	struct usb_device *udev = mt7610u_to_usb_dev(pAd);
 	struct rtmp_chip_cap *pChipCap = &pAd->chipCap;
 
-	pUrb = pTxContext->pUrb;
-	ASSERT(pUrb);
+	urb = pTxContext->pUrb;
 
 	/* Store BulkOut PipeId*/
 	pTxContext->BulkOutPipeId = BulkOutPipeId;
 
-	{
-		pSrc = (u8 *) pTxContext->TransferBuffer->field.WirelessPacket;
+	pSrc = (u8 *) pTxContext->TransferBuffer->field.WirelessPacket;
 
-		RTUSB_FILL_TX_BULK_URB(pUrb,
-						pObj->pUsb_Dev,
-						WMM0ACBulkOutAddr[BulkOutPipeId],
-						pSrc,
-						pTxContext->BulkOutSize,
-						Func,
-						pTxContext,
-						pTxContext->data_dma);
-	}
+	usb_fill_bulk_urb(urb, udev,
+			  usb_sndbulkpipe(udev, WMM0ACBulkOutAddr[BulkOutPipeId]),
+			  pSrc, pTxContext->BulkOutSize,
+			  Func, pTxContext);
+
+	urb->transfer_dma = pTxContext->data_dma;
+	urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP;
 }
 
 void RTUSBInitHTTxDesc(
@@ -80,54 +76,47 @@ void RTUSBInitHTTxDesc(
 	IN	ULONG			BulkOutSize,
 	IN	usb_complete_t	Func)
 {
-	struct urb *			pUrb;
+	struct urb *urb;
 	u8 *			pSrc = NULL;
-	struct os_cookie *		pObj = pAd->OS_Cookie;
+	struct usb_device *udev = mt7610u_to_usb_dev(pAd);
 	struct rtmp_chip_cap *pChipCap = &pAd->chipCap;
 
-	pUrb = pTxContext->pUrb;
-	ASSERT(pUrb);
+	urb = pTxContext->pUrb;
 
 	/* Store BulkOut PipeId*/
 	pTxContext->BulkOutPipeId = BulkOutPipeId;
 
 	pSrc = &pTxContext->TransferBuffer->field.WirelessPacket[pTxContext->NextBulkOutPosition];
 
-	RTUSB_FILL_HTTX_BULK_URB(pUrb,
-						pObj->pUsb_Dev,
-						WMM0ACBulkOutAddr[BulkOutPipeId],
-						pSrc,
-						BulkOutSize,
-						Func,
-						pTxContext,
-						(pTxContext->data_dma + pTxContext->NextBulkOutPosition));
+	usb_fill_bulk_urb(urb, udev,
+			  usb_sndbulkpipe(udev, WMM0ACBulkOutAddr[BulkOutPipeId]),
+			  pSrc, BulkOutSize, Func, pTxContext);
+	urb->transfer_dma = pTxContext->data_dma + pTxContext->NextBulkOutPosition;
+	urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP;
 }
 
 void RTUSBInitRxDesc(
 	IN	struct rtmp_adapter *pAd,
 	IN	PRX_CONTEXT		pRxContext)
 {
-	struct urb *			pUrb;
-	struct os_cookie *		pObj = pAd->OS_Cookie;
+	struct urb *urb;
+	struct usb_device *udev = mt7610u_to_usb_dev(pAd);
 	ULONG				RX_bulk_size;
 	struct rtmp_chip_cap *pChipCap = &pAd->chipCap;
 
-	pUrb = pRxContext->pUrb;
-	ASSERT(pUrb);
+	urb = pRxContext->pUrb;
 
-	if ( pAd->in_max_packet == 64)
+	if (pAd->in_max_packet == 64)
 		RX_bulk_size = 4096;
 	else
 		RX_bulk_size = MAX_RXBULK_SIZE;
 
-	RTUSB_FILL_RX_BULK_URB(pUrb,
-					pObj->pUsb_Dev,
-					DataBulkInAddr,
-					&(pRxContext->TransferBuffer[pAd->NextRxBulkInPosition]),
-					RX_bulk_size - (pAd->NextRxBulkInPosition),
-					RtmpUsbBulkRxComplete,
-					(void *)pRxContext,
-					(pRxContext->data_dma + pAd->NextRxBulkInPosition));
+	usb_fill_bulk_urb(urb, udev,
+			  usb_rcvbulkpipe(udev, DataBulkInAddr),
+			  &(pRxContext->TransferBuffer[pAd->NextRxBulkInPosition]), RX_bulk_size - (pAd->NextRxBulkInPosition),
+			  RtmpUsbBulkRxComplete, pRxContext);
+	urb->transfer_dma = pRxContext->data_dma + pAd->NextRxBulkInPosition;
+	urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP;
 }
 
 
@@ -629,7 +618,8 @@ void RTUSBBulkOutMLMEPacket(
 	/* Init Tx context descriptor*/
 	RTUSBInitTxDesc(pAd, pMLMEContext, MGMTPIPEIDX, (usb_complete_t)RtmpUsbBulkOutMLMEPacketComplete);
 
-	RTUSB_URB_DMA_MAPPING(pUrb);
+	pUrb->transfer_dma	= 0;	\
+	pUrb->transfer_flags &= (~URB_NO_TRANSFER_DMA_MAP);	\
 
 	pUrb = pMLMEContext->pUrb;
 	if((ret = usb_submit_urb(pUrb, GFP_ATOMIC))!=0)
