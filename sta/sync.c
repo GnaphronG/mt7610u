@@ -1747,8 +1747,8 @@ void PeerBeacon(
 		*/
 		if (is_my_bssid)
 		{
-			struct rxwi_nmac RxWI;
-			u8 RXWISize = sizeof(struct rxwi_nmac);
+			struct mt7610u_rxwi RxWI;
+			u8 RXWISize = sizeof(struct mt7610u_rxwi);
 
 			OVERLAP_BSS_SCAN_IE	BssScan;
 			u8 				RegClass;
@@ -1768,10 +1768,10 @@ void PeerBeacon(
 
 
 			memset(&RxWI, 0, RXWISize);
-			RxWI.RxWIRSSI0 = Elem->Rssi0;
-			RxWI.RxWIRSSI1 = Elem->Rssi1;
-			RxWI.RxWIRSSI2 = Elem->Rssi2;
-			RxWI.RxWIPhyMode = 0; /* Prevent SNR calculate error. */
+			RxWI.rssi[0] = Elem->Rssi0;
+			RxWI.rssi[1] = Elem->Rssi1;
+			RxWI.rssi[2] = Elem->Rssi2;
+			RxWI.phy_mode = 0; /* Prevent SNR calculate error. */
 
 			if (INFRA_ON(pAd)) {
 				MAC_TABLE_ENTRY *pEntry = &pAd->MacTab.Content[BSSID_WCID];
@@ -1794,7 +1794,7 @@ void PeerBeacon(
 			    LinkDown(pAd, false);
 				MlmeQueueInit(pAd, &pAd->Mlme.Queue);
 				BssTableInit(&pAd->ScanTab);
-			    RTMPusecDelay(1000000);		/* use delay to prevent STA do reassoc */
+			    mdelay(1000);		/* use delay to prevent STA do reassoc */
 
 				/* channel sanity check */
 				for (index = 0 ; index < pAd->ChannelListNum; index++)

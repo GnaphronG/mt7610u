@@ -269,25 +269,25 @@ typedef struct _CMD_RSP_CONTEXT
 ******************************************************************************/
 #define RTMP_START_DEQUEUE(pAd, QueIdx, irqFlags)				\
 			{													\
-				RTMP_IRQ_LOCK(&pAd->DeQueueLock[QueIdx], irqFlags);		\
+				spin_lock_bh(&pAd->DeQueueLock[QueIdx]);		\
 				if (pAd->DeQueueRunning[QueIdx])						\
 				{														\
-					RTMP_IRQ_UNLOCK(&pAd->DeQueueLock[QueIdx], irqFlags);\
+					spin_unlock_bh(&pAd->DeQueueLock[QueIdx]);\
 					DBGPRINT(RT_DEBUG_OFF, ("DeQueueRunning[%d]= true!\n", QueIdx));		\
 					continue;											\
 				}														\
 				else													\
 				{														\
 					pAd->DeQueueRunning[QueIdx] = true;					\
-					RTMP_IRQ_UNLOCK(&pAd->DeQueueLock[QueIdx], irqFlags);\
+					spin_unlock_bh(&pAd->DeQueueLock[QueIdx]);\
 				}														\
 			}
 
 #define RTMP_STOP_DEQUEUE(pAd, QueIdx, irqFlags)						\
 			do{															\
-				RTMP_IRQ_LOCK(&pAd->DeQueueLock[QueIdx], irqFlags);		\
+				spin_lock_bh(&pAd->DeQueueLock[QueIdx]);		\
 				pAd->DeQueueRunning[QueIdx] = false;					\
-				RTMP_IRQ_UNLOCK(&pAd->DeQueueLock[QueIdx], irqFlags);	\
+				spin_unlock_bh(&pAd->DeQueueLock[QueIdx]);	\
 			}while(0)
 
 #define	RTMP_HAS_ENOUGH_FREE_DESC(pAd, pTxBlk, freeNum, pPacket) \

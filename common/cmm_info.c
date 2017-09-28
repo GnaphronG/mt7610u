@@ -1184,44 +1184,44 @@ Arguments:
 */
 char *GetEncryptType(CHAR enc)
 {
-    if(enc == Ndis802_11WEPDisabled)
-        return "NONE";
-    if(enc == Ndis802_11WEPEnabled)
-    	return "WEP";
-    if(enc == Ndis802_11Encryption2Enabled)
-    	return "TKIP";
-    if(enc == Ndis802_11Encryption3Enabled)
-    	return "AES";
+	if(enc == Ndis802_11WEPDisabled)
+		return "NONE";
+	if(enc == Ndis802_11WEPEnabled)
+		return "WEP";
+	if(enc == Ndis802_11Encryption2Enabled)
+		return "TKIP";
+	if(enc == Ndis802_11Encryption3Enabled)
+		return "AES";
 	if(enc == Ndis802_11Encryption4Enabled)
-    	return "TKIPAES";
-    else
-    	return "UNKNOW";
+		return "TKIPAES";
+
+	return "UNKNOW";
 }
 
 char *GetAuthMode(CHAR auth)
 {
-    if(auth == Ndis802_11AuthModeOpen)
-    	return "OPEN";
-    if(auth == Ndis802_11AuthModeShared)
-    	return "SHARED";
+	if(auth == Ndis802_11AuthModeOpen)
+		return "OPEN";
+	if(auth == Ndis802_11AuthModeShared)
+		return "SHARED";
 	if(auth == Ndis802_11AuthModeAutoSwitch)
-    	return "AUTOWEP";
-    if(auth == Ndis802_11AuthModeWPA)
-    	return "WPA";
-    if(auth == Ndis802_11AuthModeWPAPSK)
-    	return "WPAPSK";
-    if(auth == Ndis802_11AuthModeWPANone)
-    	return "WPANONE";
-    if(auth == Ndis802_11AuthModeWPA2)
-    	return "WPA2";
-    if(auth == Ndis802_11AuthModeWPA2PSK)
-    	return "WPA2PSK";
+		return "AUTOWEP";
+	if(auth == Ndis802_11AuthModeWPA)
+		return "WPA";
+	if(auth == Ndis802_11AuthModeWPAPSK)
+		return "WPAPSK";
+	if(auth == Ndis802_11AuthModeWPANone)
+		return "WPANONE";
+	if(auth == Ndis802_11AuthModeWPA2)
+		return "WPA2";
+	if(auth == Ndis802_11AuthModeWPA2PSK)
+		return "WPA2PSK";
 	if(auth == Ndis802_11AuthModeWPA1WPA2)
-    	return "WPA1WPA2";
+		return "WPA1WPA2";
 	if(auth == Ndis802_11AuthModeWPA1PSKWPA2PSK)
-    	return "WPA1PSKWPA2PSK";
+		return "WPA1PSKWPA2PSK";
 
-    	return "UNKNOW";
+	return "UNKNOW";
 }
 
 
@@ -3109,10 +3109,10 @@ INT Set_RateAdaptInterval(
 			DBGPRINT(RT_DEBUG_OFF, ("%s():Set RateAdaptation TimeInterval as(%d:%d) ms\n",
 						__FUNCTION__, ra_time, ra_qtime));
 
-			RTMP_IRQ_LOCK(&pAd->irq_lock, irqFlags);
+			spin_lock_bh(&pAd->irq_lock);
 			pAd->ra_interval = ra_time;
 			pAd->ra_fast_interval = ra_qtime;
-			RTMP_IRQ_UNLOCK(&pAd->irq_lock, irqFlags);
+			spin_unlock_bh(&pAd->irq_lock);
 			return true;
 		}
 	}

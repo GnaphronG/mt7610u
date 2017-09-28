@@ -1800,7 +1800,7 @@ void LinkUp(
 		AsicUpdateAutoFallBackTable(pAd, pEntry->pTable);
 	}
 
-	RTMP_SEM_LOCK(&pAd->MacTabLock);
+	spin_lock_bh(&pAd->MacTabLock);
 	pEntry->HTPhyMode.word = pAd->StaCfg.HTPhyMode.word;
 	pEntry->MaxHTPhyMode.word = pAd->StaCfg.HTPhyMode.word;
 	if (pAd->StaCfg.bAutoTxRateSwitch == false) {
@@ -1816,7 +1816,7 @@ void LinkUp(
 			RTMPUpdateLegacyTxSetting((u8) pAd->StaCfg.DesiredTransmitSetting.field.FixedTxMode, pEntry);
 	} else
 		pEntry->bAutoTxRateSwitch = true;
-	RTMP_SEM_UNLOCK(&pAd->MacTabLock);
+	spin_unlock_bh(&pAd->MacTabLock);
 
 	/*  Let Link Status Page display first initial rate. */
 	pAd->LastTxRate = (USHORT) (pEntry->HTPhyMode.word);
@@ -1922,9 +1922,9 @@ void LinkUp(
 	/* Pther information in MACTab.Content[BSSID_WCID] is not necessary for driver. */
 	/* Note: As STA, The MACTab.Content[BSSID_WCID]. PairwiseKey and Shared Key for BSS0 are the same. */
 
-	RTMP_SEM_LOCK(&pAd->MacTabLock);
+	spin_lock_bh(&pAd->MacTabLock);
 	pEntry->PortSecured = pAd->StaCfg.PortSecured;
-	RTMP_SEM_UNLOCK(&pAd->MacTabLock);
+	spin_unlock_bh(&pAd->MacTabLock);
 
 	/* */
 	/* Patch Atheros AP TX will breakdown issue. */
@@ -2206,10 +2206,10 @@ void LinkDown(
 		pAd->StaCfg.PrivacyFilter = Ndis802_11PrivFilter8021xWEP;
 	}
 
-	RTMP_SEM_LOCK(&pAd->MacTabLock);
+	spin_lock_bh(&pAd->MacTabLock);
 	memset(&pAd->MacTab.Content[BSSID_WCID], 0, sizeof(MAC_TABLE_ENTRY));
 	pAd->MacTab.Content[BSSID_WCID].PortSecured = pAd->StaCfg.PortSecured;
-	RTMP_SEM_UNLOCK(&pAd->MacTabLock);
+	spin_unlock_bh(&pAd->MacTabLock);
 
 	pAd->StaCfg.MicErrCnt = 0;
 
@@ -2611,7 +2611,7 @@ ULONG MakeIbssBeacon(
 	USHORT CapabilityInfo;
 	LARGE_INTEGER FakeTimestamp;
 	ULONG FrameLen = 0;
-	struct txwi_nmac *pTxWI = &pAd->BeaconTxWI;
+	struct mt7610u_txwi *pTxWI = &pAd->BeaconTxWI;
 	u8 *pBeaconFrame = pAd->BeaconBuf;
 	bool Privacy;
 	u8 SupRate[MAX_LEN_OF_SUPPORTED_RATES];

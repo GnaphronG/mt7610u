@@ -127,7 +127,7 @@ int MiniportMMRequest(
 	struct sk_buff * pPacket;
 	int Status = NDIS_STATUS_SUCCESS;
 	ULONG FreeNum;
-	u8 TXWISize = sizeof(struct txwi_nmac);
+	u8 TXWISize = sizeof(struct mt7610u_txwi);
 	u8 rtmpHwHdr[40];
 	bool bUseDataQ = false, FlgDataQForce = false, FlgIsLocked = false;
 	int retryCnt = 0, hw_len = TXINFO_SIZE + TXWISize + TSO_SIZE;
@@ -264,20 +264,20 @@ int MlmeHardTransmitMgmtRing(
 	HEADER_802_11 *pHeader_802_11;
 	bool bAckRequired, bInsertTimestamp;
 	u8 MlmeRate;
-	struct txwi_nmac *pFirstTxWI;
+	struct mt7610u_txwi *pFirstTxWI;
 	MAC_TABLE_ENTRY *pMacEntry = NULL;
 	u8 PID;
-	u8 TXWISize = sizeof(struct txwi_nmac);
+	u8 TXWISize = sizeof(struct mt7610u_txwi);
 
 
 	RTMP_QueryPacketInfo(pPacket, &PacketInfo, &pSrcBufVA, &SrcBufLen);
 
 	/* Make sure MGMT ring resource won't be used by other threads*/
-	RTMP_SEM_LOCK(&pAd->MgmtRingLock);
+	spin_lock_bh(&pAd->MgmtRingLock);
 	if (pSrcBufVA == NULL)
 	{
 		/* The buffer shouldn't be NULL*/
-			RTMP_SEM_UNLOCK(&pAd->MgmtRingLock);
+			spin_unlock_bh(&pAd->MgmtRingLock);
 		return NDIS_STATUS_FAILURE;
 	}
 
@@ -290,7 +290,7 @@ int MlmeHardTransmitMgmtRing(
 	}
 #endif /* CONFIG_STA_SUPPORT */
 
-	pFirstTxWI = (struct txwi_nmac *)(pSrcBufVA +  TXINFO_SIZE);
+	pFirstTxWI = (struct mt7610u_txwi *)(pSrcBufVA +  TXINFO_SIZE);
 	pHeader_802_11 = (PHEADER_802_11) (pSrcBufVA + TXINFO_SIZE + TSO_SIZE + TXWISize);
 
 	if (pHeader_802_11->Addr1[0] & 0x01)
@@ -433,7 +433,7 @@ int MlmeHardTransmitMgmtRing(
 		&& (pAd->CommonCfg.bIEEE80211H == 1)
 		&& (pAd->Dot11_H.RDMode != RD_NORMAL_MODE))
 	{
-		RTMP_SEM_UNLOCK(&pAd->MgmtRingLock);
+		spin_unlock_bh(&pAd->MgmtRingLock);
 		return NDIS_STATUS_FAILURE;
 	}
 
@@ -490,7 +490,7 @@ int MlmeHardTransmitMgmtRing(
 
 	/* Make sure to release MGMT ring resource*/
 /*	if (!IrqState)*/
-		RTMP_SEM_UNLOCK(&pAd->MgmtRingLock);
+		spin_unlock_bh(&pAd->MgmtRingLock);
 	return NDIS_STATUS_SUCCESS;
 }
 
@@ -503,13 +503,13 @@ int MlmeHardTransmitMgmtRing(
 #define DEQUEUE_LOCK(lock, bIntContext, IrqFlags) 				\
 			do{													\
 				if (bIntContext == false)						\
-				RTMP_IRQ_LOCK((lock), IrqFlags);		\
+				spin_lock_bh((lock));		\
 			}while(0)
 
 #define DEQUEUE_UNLOCK(lock, bIntContext, IrqFlags)				\
 			do{													\
 				if (bIntContext == false)						\
-					RTMP_IRQ_UNLOCK((lock), IrqFlags);	\
+					spin_unlock_bh((lock));	\
 			}while(0)
 
 
@@ -1524,7 +1524,7 @@ bool RTMPCheckEtherType(
 void Update_Rssi_Sample(
 	IN struct rtmp_adapter*pAd,
 	IN RSSI_SAMPLE *pRssi,
-	IN struct rxwi_nmac *pRxWI)
+	IN struct mt7610u_rxwi *pRxWI)
 {
 	CHAR rssi[3];
 	u8 snr[3];
@@ -1648,8 +1648,8 @@ void Indicate_Legacy_Packet(
 	{
 		PBA_REC_ENTRY		pBAEntry;
 		ULONG				Now32;
-		u8 			Wcid = pRxBlk->pRxWI->RxWIWirelessCliID;
-		u8 			TID = pRxBlk->pRxWI->RxWITID;
+		u8 			Wcid = pRxBlk->pRxWI->wcid;
+		u8 			TID = pRxBlk->pRxWI->tid;
 		USHORT				Idx;
 
 #define REORDERING_PACKET_TIMEOUT		((100 * OS_HZ)/1000)	/* system ticks -- 100 ms*/
@@ -1667,7 +1667,7 @@ void Indicate_Legacy_Packet(
 	   				)
 				{
 					DBGPRINT(RT_DEBUG_OFF, ("Indicate_Legacy_Packet():flush reordering_timeout_mpdus! RxWI->Flags=%d, pRxWI.TID=%d, RxD->AMPDU=%d!\n",
-												pRxBlk->Flags, pRxBlk->pRxWI->RxWITID, pRxBlk->pRxInfo->AMPDU));
+												pRxBlk->Flags, pRxBlk->pRxWI->tid, pRxBlk->pRxInfo->AMPDU));
 					ba_flush_reordering_timeout_mpdus(pAd, pBAEntry, Now32);
 				}
 			}
@@ -1916,14 +1916,14 @@ void Indicate_EAPOL_Packet(
 {
 	MAC_TABLE_ENTRY *pEntry = NULL;
 
-	if (pRxBlk->pRxWI->RxWIWirelessCliID >= MAX_LEN_OF_MAC_TABLE)
+	if (pRxBlk->pRxWI->wcid >= MAX_LEN_OF_MAC_TABLE)
 	{
 		DBGPRINT(RT_DEBUG_WARN, ("Indicate_EAPOL_Packet: invalid wcid.\n"));
 		dev_kfree_skb_any(pRxBlk->skb);
 		return;
 	}
 
-	pEntry = &pAd->MacTab.Content[pRxBlk->pRxWI->RxWIWirelessCliID];
+	pEntry = &pAd->MacTab.Content[pRxBlk->pRxWI->wcid];
 	if (pEntry == NULL)
 	{
 		DBGPRINT(RT_DEBUG_WARN, ("Indicate_EAPOL_Packet: drop and release the invalid packet.\n"));
@@ -1936,7 +1936,7 @@ void Indicate_EAPOL_Packet(
 	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
 	{
 		{
-			ASSERT((pRxBlk->pRxWI->RxWIWirelessCliID == BSSID_WCID));
+			ASSERT((pRxBlk->pRxWI->wcid == BSSID_WCID));
 			STARxEAPOLFrameIndicate(pAd, pEntry, pRxBlk, FromWhichBSSID);
 			return;
 	}
@@ -2293,14 +2293,14 @@ INT ip_assembly(
 					}
 
 					/* move backup fragments to SwTxQueue[] */
-					RTMP_SEM_LOCK(&pAd->TxSwQueueLock[QueIdx]);
+					spin_lock_bh(&pAd->TxSwQueueLock[QueIdx]);
 					while (1) {
 						pBackupPktEntry = RemoveHeadQueue(pTempqueue);
 						if (pBackupPktEntry == NULL)
 							break;
 						InsertTailQueueAc(pAd, pEntry, &pAd->TxSwQueue[QueIdx], pBackupPktEntry);
 					}
-					RTMP_SEM_UNLOCK(&pAd->TxSwQueueLock[QueIdx]);
+					spin_unlock_bh(&pAd->TxSwQueueLock[QueIdx]);
 
 					return 0;
 				}

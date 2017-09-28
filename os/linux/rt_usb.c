@@ -110,7 +110,7 @@ void RtmpMgmtTaskExit(
 	RTMP_OS_TASK	*pTask;
 
 	/* Sleep 50 milliseconds so pending io might finish normally */
-	RTMPusecDelay(50000);
+	mdelay(50);
 
 	/* We want to wait until all pending receives and sends to the */
 	/* device object. We cancel any */
@@ -134,9 +134,9 @@ void RtmpMgmtTaskExit(
 	pTask = &pAd->cmdQTask;
 	RTMP_OS_TASK_LEGALITY(pTask)
 	{
-		RTMP_SEM_LOCK(&pAd->CmdQLock);
+		spin_lock_bh(&pAd->CmdQLock);
 		pAd->CmdQ.CmdQState = RTMP_TASK_STAT_STOPED;
-		RTMP_SEM_UNLOCK(&pAd->CmdQLock);
+		spin_unlock_bh(&pAd->CmdQLock);
 
 		/*RTUSBCMDUp(&pAd->cmdQTask); */
 		ret = RtmpOSTaskKill(pTask);
@@ -188,7 +188,7 @@ static void rtusb_dataout_complete(unsigned long data)
 	/*DBGPRINT(RT_DEBUG_LOUD, ("Done-B(%d):I=0x%lx, CWPos=%ld, NBPos=%ld, ENBPos=%ld, bCopy=%d!\n", BulkOutPipeId, in_interrupt(), pHTTXContext->CurWritePosition, */
 	/*		pHTTXContext->NextBulkOutPosition, pHTTXContext->ENextBulkOutPosition, pHTTXContext->bCopySavePad)); */
 
-	RTMP_IRQ_LOCK(&pAd->BulkOutLock[BulkOutPipeId], IrqFlags);
+	spin_lock_bh(&pAd->BulkOutLock[BulkOutPipeId]);
 	pAd->BulkOutPending[BulkOutPipeId] = false;
 	pHTTXContext->IRPPending = false;
 	pAd->watchDogTxPendingCnt[BulkOutPipeId] = 0;
@@ -197,12 +197,12 @@ static void rtusb_dataout_complete(unsigned long data)
 	{
 		pAd->BulkOutComplete++;
 
-		RTMP_IRQ_UNLOCK(&pAd->BulkOutLock[BulkOutPipeId], IrqFlags);
+		spin_unlock_bh(&pAd->BulkOutLock[BulkOutPipeId]);
 
 		pAd->Counters8023.GoodTransmits++;
-		/*RTMP_IRQ_LOCK(&pAd->TxContextQueueLock[BulkOutPipeId], IrqFlags); */
+		/*spin_lock_bh(&pAd->TxContextQueueLock[BulkOutPipeId]); */
 		FREE_HTTX_RING(pAd, BulkOutPipeId, pHTTXContext);
-		/*RTMP_IRQ_UNLOCK(&pAd->TxContextQueueLock[BulkOutPipeId], IrqFlags); */
+		/*spin_unlock_bh(&pAd->TxContextQueueLock[BulkOutPipeId]); */
 
 
 	}
@@ -223,7 +223,7 @@ static void rtusb_dataout_complete(unsigned long data)
 			pAd->bulkResetPipeid = BulkOutPipeId;
 			pAd->bulkResetReq[BulkOutPipeId] = pAd->BulkOutReq;
 		}
-		RTMP_IRQ_UNLOCK(&pAd->BulkOutLock[BulkOutPipeId], IrqFlags);
+		spin_unlock_bh(&pAd->BulkOutLock[BulkOutPipeId]);
 
 		DBGPRINT_RAW(RT_DEBUG_ERROR, ("BulkOutDataPacket failed: ReasonCode=%d!\n", Status));
 		DBGPRINT_RAW(RT_DEBUG_ERROR, ("\t>>BulkOut Req=0x%lx, Complete=0x%lx, Other=0x%lx\n", pAd->BulkOutReq, pAd->BulkOutComplete, pAd->BulkOutCompleteOther));
@@ -236,7 +236,7 @@ static void rtusb_dataout_complete(unsigned long data)
 	/* bInUse = true, means some process are filling TX data, after that must turn on bWaitingBulkOut */
 	/* bWaitingBulkOut = true, means the TX data are waiting for bulk out. */
 	/* */
-	/*RTMP_IRQ_LOCK(&pAd->TxContextQueueLock[BulkOutPipeId], IrqFlags); */
+	/*spin_lock_bh(&pAd->TxContextQueueLock[BulkOutPipeId]); */
 	if (((pHTTXContext->ENextBulkOutPosition != pHTTXContext->CurWritePosition) &&
 		(pHTTXContext->ENextBulkOutPosition != (pHTTXContext->CurWritePosition+8)) &&
 		!RTUSB_TEST_BULK_FLAG(pAd, (fRTUSB_BULK_OUT_DATA_FRAG << BulkOutPipeId)))
@@ -245,7 +245,7 @@ static void rtusb_dataout_complete(unsigned long data)
 		/* Indicate There is data avaliable */
 		RTUSB_SET_BULK_FLAG(pAd, (fRTUSB_BULK_OUT_DATA_NORMAL << BulkOutPipeId));
 	}
-	/*RTMP_IRQ_UNLOCK(&pAd->TxContextQueueLock[BulkOutPipeId], IrqFlags); */
+	/*spin_unlock_bh(&pAd->TxContextQueueLock[BulkOutPipeId]); */
 
 	/* Always call Bulk routine, even reset bulk. */
 	/* The protection of rest bulk should be in BulkOut routine */
@@ -269,7 +269,7 @@ static void rtusb_null_frame_done_tasklet(unsigned long data)
 /*	Status 			= pUrb->status; */
 
 	/* Reset Null frame context flags */
-	RTMP_IRQ_LOCK(&pAd->BulkOutLock[0], irqFlag);
+	spin_lock_bh(&pAd->BulkOutLock[0]);
 	pNullContext->IRPPending 	= false;
 	pNullContext->InUse 		= false;
 	pAd->BulkOutPending[0] = false;
@@ -277,7 +277,7 @@ static void rtusb_null_frame_done_tasklet(unsigned long data)
 
 	if (Status == USB_ST_NOERROR)
 	{
-		RTMP_IRQ_UNLOCK(&pAd->BulkOutLock[0], irqFlag);
+		spin_unlock_bh(&pAd->BulkOutLock[0]);
 
 		RTMPDeQueuePacket(pAd, false, NUM_OF_TX_RING, MAX_TX_PROCESS);
 	}
@@ -291,12 +291,12 @@ static void rtusb_null_frame_done_tasklet(unsigned long data)
 			DBGPRINT_RAW(RT_DEBUG_ERROR, ("Bulk Out Null Frame Failed, ReasonCode=%d!\n", Status));
 			RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_BULKOUT_RESET);
 			pAd->bulkResetPipeid = (MGMTPIPEIDX | BULKOUT_MGMT_RESET_FLAG);
-			RTMP_IRQ_UNLOCK(&pAd->BulkOutLock[0], irqFlag);
+			spin_unlock_bh(&pAd->BulkOutLock[0]);
 			RTEnqueueInternalCmd(pAd, CMDTHREAD_RESET_BULK_OUT, NULL, 0);
 		}
 		else
 		{
-			RTMP_IRQ_UNLOCK(&pAd->BulkOutLock[0], irqFlag);
+			spin_unlock_bh(&pAd->BulkOutLock[0]);
 		}
 	}
 
@@ -344,9 +344,9 @@ static void rtusb_pspoll_frame_done_tasklet(unsigned long data)
 		}
 	}
 
-	RTMP_SEM_LOCK(&pAd->BulkOutLock[0]);
+	spin_lock_bh(&pAd->BulkOutLock[0]);
 	pAd->BulkOutPending[0] = false;
-	RTMP_SEM_UNLOCK(&pAd->BulkOutLock[0]);
+	spin_unlock_bh(&pAd->BulkOutLock[0]);
 
 	/* Always call Bulk routine, even reset bulk. */
 	/* The protectioon of rest bulk should be in BulkOut routine */
@@ -384,7 +384,7 @@ static void rx_done_tasklet(unsigned long data)
 /*	Status = pUrb->status; */
 
 
-	RTMP_IRQ_LOCK(&pAd->BulkInLock, IrqFlags);
+	spin_lock_bh(&pAd->BulkInLock);
 	pRxContext->InUse = false;
 	pRxContext->IRPPending = false;
 	pRxContext->BulkInOffset += pUrb->actual_length;
@@ -403,14 +403,14 @@ static void rx_done_tasklet(unsigned long data)
 			pRxContext->Readable = true;
 			INC_RING_INDEX(pAd->NextRxBulkInIndex, RX_RING_SIZE);
 		}
-		RTMP_IRQ_UNLOCK(&pAd->BulkInLock, IrqFlags);
+		spin_unlock_bh(&pAd->BulkInLock);
 	}
 	else	 /* STATUS_OTHER */
 	{
 		pAd->BulkInCompleteFail++;
 		/* Still read this packet although it may comtain wrong bytes. */
 		pRxContext->Readable = false;
-		RTMP_IRQ_UNLOCK(&pAd->BulkInLock, IrqFlags);
+		spin_unlock_bh(&pAd->BulkInLock);
 
 		/* Parsing all packets. because after reset, the index will reset to all zero. */
 		if ((!RTMP_TEST_FLAG(pAd, (fRTMP_ADAPTER_RESET_IN_PROGRESS |
@@ -458,7 +458,7 @@ static void rtusb_mgmt_dma_done_tasklet(unsigned long data)
 
 	ASSERT((pAd->MgmtRing.TxDmaIdx == index));
 
-	RTMP_IRQ_LOCK(&pAd->BulkOutLock[MGMTPIPEIDX], IrqFlags);
+	spin_lock_bh(&pAd->BulkOutLock[MGMTPIPEIDX]);
 
 
 
@@ -479,9 +479,9 @@ static void rtusb_mgmt_dma_done_tasklet(unsigned long data)
 	}
 
 	pAd->BulkOutPending[MGMTPIPEIDX] = false;
-	RTMP_IRQ_UNLOCK(&pAd->BulkOutLock[MGMTPIPEIDX], IrqFlags);
+	spin_unlock_bh(&pAd->BulkOutLock[MGMTPIPEIDX]);
 
-	RTMP_IRQ_LOCK(&pAd->MLMEBulkOutLock, IrqFlags);
+	spin_lock_bh(&pAd->MLMEBulkOutLock);
 	/* Reset MLME context flags */
 	pMLMEContext->IRPPending = false;
 	pMLMEContext->InUse = false;
@@ -494,7 +494,7 @@ static void rtusb_mgmt_dma_done_tasklet(unsigned long data)
 	/* Increase MgmtRing Index */
 	INC_RING_INDEX(pAd->MgmtRing.TxDmaIdx, MGMT_RING_SIZE);
 	pAd->MgmtRing.TxSwFreeIdx++;
-	RTMP_IRQ_UNLOCK(&pAd->MLMEBulkOutLock, IrqFlags);
+	spin_unlock_bh(&pAd->MLMEBulkOutLock);
 
 
 	/* No-matter success or fail, we free the mgmt packet. */
@@ -904,9 +904,9 @@ INT RTUSBCmdThread(
 
 	RtmpOSTaskCustomize(pTask);
 
-	RTMP_SEM_LOCK(&pAd->CmdQLock);
+	spin_lock_bh(&pAd->CmdQLock);
 	pAd->CmdQ.CmdQState = RTMP_TASK_STAT_RUNNING;
-	RTMP_SEM_UNLOCK(&pAd->CmdQLock);
+	spin_unlock_bh(&pAd->CmdQLock);
 
 	while (pAd->CmdQ.CmdQState == RTMP_TASK_STAT_RUNNING) {
 		if (RtmpOSTaskWait(pAd, pTask, &status) == false) {
@@ -924,7 +924,7 @@ INT RTUSBCmdThread(
 	if (!pAd->PM_FlgSuspend) {	/* Clear the CmdQElements. */
 		struct rtmp_queue_elem *pCmdQElmt = NULL;
 
-		RTMP_SEM_LOCK(&pAd->CmdQLock);
+		spin_lock_bh(&pAd->CmdQLock);
 		pAd->CmdQ.CmdQState = RTMP_TASK_STAT_STOPED;
 		while(pAd->CmdQ.size) {
 			RTThreadDequeueCmd(&pAd->CmdQ, &pCmdQElmt);
@@ -935,7 +935,7 @@ INT RTUSBCmdThread(
 			}
 		}
 
-		RTMP_SEM_UNLOCK(&pAd->CmdQLock);
+		spin_unlock_bh(&pAd->CmdQLock);
 	}
 	/* notify the exit routine that we're actually exiting now
 	 *

@@ -470,10 +470,10 @@ typedef struct _RTMP_SCATTER_GATHER_LIST {
 	bool Cancelled; \
 	(_pAd)->StaCfg.PortSecured = WPA_802_1X_PORT_SECURED; \
 	RTMP_IndicateMediaState(_pAd, NdisMediaStateConnected); \
-	RTMP_SEM_LOCK(&((_pAd)->MacTabLock)); \
+	spin_lock_bh(&((_pAd)->MacTabLock)); \
 	(_pAd)->MacTab.Content[BSSID_WCID].PortSecured = (_pAd)->StaCfg.PortSecured; \
 	(_pAd)->MacTab.Content[BSSID_WCID].PrivacyFilter = Ndis802_11PrivFilterAcceptAll;\
-	RTMP_SEM_UNLOCK(&(_pAd)->MacTabLock); \
+	spin_unlock_bh(&(_pAd)->MacTabLock); \
 	RTMPCancelTimer(&((_pAd)->Mlme.LinkDownTimer), &Cancelled);\
 	STA_EXTRA_SETTING(_pAd); \
 }
@@ -1432,7 +1432,7 @@ struct common_config {
 
 #ifdef NEW_RATE_ADAPT_SUPPORT
 	USHORT	lowTrafficThrd;		/* Threshold for reverting to default MCS when traffic is low */
-	bool TrainUpRule;		/* QuickDRS train up criterion: 0=>Throughput, 1=>PER, 2=> Throughput & PER */
+	SHORT 	TrainUpRule;		/* QuickDRS train up criterion: 0=>Throughput, 1=>PER, 2=> Throughput & PER */
 	SHORT	TrainUpRuleRSSI;	/* If TrainUpRule=2 then use Hybrid rule when RSSI < TrainUpRuleRSSI */
 	USHORT	TrainUpLowThrd;		/* QuickDRS Hybrid train up low threshold */
 	USHORT	TrainUpHighThrd;	/* QuickDRS Hybrid train up high threshold */
@@ -2505,7 +2505,7 @@ struct rtmp_adapter {
 /*      802.11 related parameters                                                        */
 /*****************************************************************************************/
 	/* outgoing BEACON frame buffer and corresponding TXD */
-	struct txwi_nmac BeaconTxWI;
+	struct mt7610u_txwi BeaconTxWI;
 	u8 *BeaconBuf;
 	USHORT BeaconOffset[HW_BEACON_MAX_NUM];
 
@@ -2758,7 +2758,7 @@ struct rtmp_adapter {
 
 	u8 bloopBackTest;
 	bool bHwTxLookupRate;
-	struct txwi_nmac NullTxWI;
+	struct mt7610u_txwi NullTxWI;
 	bool TestMulMac;
 
 	struct mt7610u_mcu_ctrl MCUCtrl;
@@ -2770,9 +2770,9 @@ struct rtmp_adapter {
   **************************************************************************/
 typedef struct _RX_BLK_{
 	u8 hw_rx_info[RXD_SIZE]; /* include "RXD_STRUC RxD" and "RXINFO_STRUC rx_info " */
-	struct rtmp_rxinfo *pRxInfo;
-	RXFCE_INFO *pRxFceInfo;
-	struct rxwi_nmac *pRxWI;
+	struct mt7610u_rxinfo *pRxInfo;
+	struct mt7610u_rxfce_info_pkt *pRxFceInfo;
+	struct mt7610u_rxwi *pRxWI;
 	PHEADER_802_11 pHeader;
 	struct sk_buff *skb;
 	u8 *pData;
@@ -2780,7 +2780,7 @@ typedef struct _RX_BLK_{
 	USHORT Flags;
 	u8 UserPriority;	/* for calculate TKIP MIC using */
 	u8 OpMode;	/* 0:OPMODE_STA 1:OPMODE_AP */
-	u8 wcid;		/* copy of pRxWI->RxWIWirelessCliID */
+	u8 wcid;		/* copy of pRxWI->wcid */
 	u8 mcs;
 	u8 U2M;
 } RX_BLK;
@@ -3576,7 +3576,7 @@ USHORT RTMPCalcDuration(
 
 void RTMPWriteTxWI(
 	IN struct rtmp_adapter*pAd,
-	IN struct txwi_nmac *pTxWI,
+	IN struct mt7610u_txwi *pTxWI,
 	IN bool FRAG,
 	IN bool CFACK,
 	IN bool InsTimestamp,
@@ -3596,13 +3596,13 @@ void RTMPWriteTxWI(
 
 void RTMPWriteTxWI_Data(
 	IN struct rtmp_adapter*pAd,
-	INOUT struct txwi_nmac *pTxWI,
+	INOUT struct mt7610u_txwi *pTxWI,
 	IN TX_BLK *pTxBlk);
 
 
 void RTMPWriteTxWI_Cache(
 	IN struct rtmp_adapter*pAd,
-	INOUT struct txwi_nmac *pTxWI,
+	INOUT struct mt7610u_txwi *pTxWI,
 	IN TX_BLK *pTxBlk);
 
 void RTMPSuspendMsduTransmission(
@@ -5697,7 +5697,7 @@ void CmmRxRalinkFrameIndicate(
 void Update_Rssi_Sample(
 	IN struct rtmp_adapter*pAd,
 	IN RSSI_SAMPLE *pRssi,
-	IN struct rxwi_nmac *pRxWI);
+	IN struct mt7610u_rxwi *pRxWI);
 
 struct sk_buff * GetPacketFromRxRing(
 	IN struct rtmp_adapter*pAd,
@@ -6008,8 +6008,8 @@ void RT28xxUsbAsicWOWDisable(
 int RTMPCheckRxError(
 	IN struct rtmp_adapter*pAd,
 	IN PHEADER_802_11 pHeader,
-	IN struct rxwi_nmac *pRxWI,
-	struct rtmp_rxinfo *pRxInfo);
+	IN struct mt7610u_rxwi *pRxWI,
+	struct mt7610u_rxinfo *pRxInfo);
 
 
 /*////////////////////////////////////*/

@@ -100,14 +100,10 @@ typedef struct _OS_RSTRUC  {
  *	OS semaphore related data structure and definitions
  ******************************************************************************/
 
-#define RTMP_SEM_LOCK							OS_SEM_LOCK
-#define RTMP_SEM_UNLOCK							OS_SEM_UNLOCK
 #define RTMP_SPIN_LOCK_IRQ						OS_SPIN_LOCK_IRQ
 #define RTMP_SPIN_UNLOCK_IRQ					OS_SPIN_UNLOCK_IRQ
 #define RTMP_SPIN_LOCK_IRQSAVE					OS_SPIN_LOCK_IRQSAVE
 #define RTMP_SPIN_UNLOCK_IRQRESTORE				OS_SPIN_UNLOCK_IRQRESTORE
-#define RTMP_IRQ_LOCK							OS_IRQ_LOCK
-#define RTMP_IRQ_UNLOCK							OS_IRQ_UNLOCK
 #define RTMP_INT_LOCK							OS_INT_LOCK
 #define RTMP_INT_UNLOCK							OS_INT_UNLOCK
 #define RTMP_OS_ATOMIC							atomic_t

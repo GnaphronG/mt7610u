@@ -249,7 +249,7 @@ PMEASURE_REQ_ENTRY MeasureReqLookUp(
 		return NULL;
 	}
 
-	RTMP_SEM_LOCK(&pAd->CommonCfg.MeasureReqTabLock);
+	spin_lock_bh(&pAd->CommonCfg.MeasureReqTabLock);
 
 	HashIdx = MQ_DIALOGTOKEN_HASH_INDEX(DialogToken);
 	pEntry = pTab->Hash[HashIdx];
@@ -265,7 +265,7 @@ PMEASURE_REQ_ENTRY MeasureReqLookUp(
 		}
 	}
 
-	RTMP_SEM_UNLOCK(&pAd->CommonCfg.MeasureReqTabLock);
+	spin_unlock_bh(&pAd->CommonCfg.MeasureReqTabLock);
 
 	return pEntry;
 }
@@ -289,7 +289,7 @@ PMEASURE_REQ_ENTRY MeasureReqInsert(
 	pEntry = MeasureReqLookUp(pAd, DialogToken);
 	if (pEntry == NULL)
 	{
-		RTMP_SEM_LOCK(&pAd->CommonCfg.MeasureReqTabLock);
+		spin_lock_bh(&pAd->CommonCfg.MeasureReqTabLock);
 		for (i = 0; i < MAX_MEASURE_REQ_TAB_SIZE; i++)
 		{
 			NdisGetSystemUpTime(&Now);
@@ -363,7 +363,7 @@ PMEASURE_REQ_ENTRY MeasureReqInsert(
 			}
 		}
 
-		RTMP_SEM_UNLOCK(&pAd->CommonCfg.MeasureReqTabLock);
+		spin_unlock_bh(&pAd->CommonCfg.MeasureReqTabLock);
 	}
 
 	return pEntry;
@@ -396,7 +396,7 @@ void MeasureReqDelete(
 		ULONG HashIdx = MQ_DIALOGTOKEN_HASH_INDEX(pEntry->DialogToken);
 		PMEASURE_REQ_ENTRY pProbeEntry = pTab->Hash[HashIdx];
 
-		RTMP_SEM_LOCK(&pAd->CommonCfg.MeasureReqTabLock);
+		spin_lock_bh(&pAd->CommonCfg.MeasureReqTabLock);
 		/* update Hash list*/
 		do
 		{
@@ -420,7 +420,7 @@ void MeasureReqDelete(
 		memset(pEntry, 0, sizeof(MEASURE_REQ_ENTRY));
 		pTab->Size--;
 
-		RTMP_SEM_UNLOCK(&pAd->CommonCfg.MeasureReqTabLock);
+		spin_unlock_bh(&pAd->CommonCfg.MeasureReqTabLock);
 	}
 
 	return;
@@ -472,7 +472,7 @@ static PTPC_REQ_ENTRY TpcReqLookUp(
 		return NULL;
 	}
 
-	RTMP_SEM_LOCK(&pAd->CommonCfg.TpcReqTabLock);
+	spin_lock_bh(&pAd->CommonCfg.TpcReqTabLock);
 
 	HashIdx = TPC_DIALOGTOKEN_HASH_INDEX(DialogToken);
 	pEntry = pTab->Hash[HashIdx];
@@ -488,7 +488,7 @@ static PTPC_REQ_ENTRY TpcReqLookUp(
 		}
 	}
 
-	RTMP_SEM_UNLOCK(&pAd->CommonCfg.TpcReqTabLock);
+	spin_unlock_bh(&pAd->CommonCfg.TpcReqTabLock);
 
 	return pEntry;
 }
@@ -513,7 +513,7 @@ static PTPC_REQ_ENTRY TpcReqInsert(
 	pEntry = TpcReqLookUp(pAd, DialogToken);
 	if (pEntry == NULL)
 	{
-		RTMP_SEM_LOCK(&pAd->CommonCfg.TpcReqTabLock);
+		spin_lock_bh(&pAd->CommonCfg.TpcReqTabLock);
 		for (i = 0; i < MAX_TPC_REQ_TAB_SIZE; i++)
 		{
 			NdisGetSystemUpTime(&Now);
@@ -587,7 +587,7 @@ static PTPC_REQ_ENTRY TpcReqInsert(
 			}
 		}
 
-		RTMP_SEM_UNLOCK(&pAd->CommonCfg.TpcReqTabLock);
+		spin_unlock_bh(&pAd->CommonCfg.TpcReqTabLock);
 	}
 
 	return pEntry;
@@ -620,7 +620,7 @@ static void TpcReqDelete(
 		ULONG HashIdx = TPC_DIALOGTOKEN_HASH_INDEX(pEntry->DialogToken);
 		PTPC_REQ_ENTRY pProbeEntry = pTab->Hash[HashIdx];
 
-		RTMP_SEM_LOCK(&pAd->CommonCfg.TpcReqTabLock);
+		spin_lock_bh(&pAd->CommonCfg.TpcReqTabLock);
 		/* update Hash list*/
 		do
 		{
@@ -644,7 +644,7 @@ static void TpcReqDelete(
 		memset(pEntry, 0, sizeof(TPC_REQ_ENTRY));
 		pTab->Size--;
 
-		RTMP_SEM_UNLOCK(&pAd->CommonCfg.TpcReqTabLock);
+		spin_unlock_bh(&pAd->CommonCfg.TpcReqTabLock);
 	}
 
 	return;
@@ -1633,7 +1633,7 @@ static void PeerChSwAnnAction(
 			AsicLockChannel(pAd, 1);
 			LinkDown(pAd, false);
 			MlmeQueueInit(pAd, &pAd->Mlme.Queue);
-		    RTMPusecDelay(1000000);		/* use delay to prevent STA do reassoc*/
+			mdelay(1000);		/* use delay to prevent STA do reassoc*/
 
 			/* channel sanity check*/
 			for (index = 0 ; index < pAd->ChannelListNum; index++)

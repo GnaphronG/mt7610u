@@ -60,9 +60,9 @@ int RtmpInsertPsQueue(
 		else
 		{
 			DBGPRINT(RT_DEBUG_TRACE, ("legacy ps> queue a packet!\n"));
-			RTMP_IRQ_LOCK(&pAd->irq_lock, IrqFlags);
+			spin_lock_bh(&pAd->irq_lock);
 			InsertTailQueue(&pMacEntry->PsQueue, PACKET_TO_QUEUE_ENTRY(pPacket));
-			RTMP_IRQ_UNLOCK(&pAd->irq_lock, IrqFlags);
+			spin_unlock_bh(&pAd->irq_lock);
 		}
 	}
 
@@ -133,9 +133,9 @@ void RtmpHandleRxPsPoll(
 		pMacEntry->ContinueTxFailCnt = 0;
 
 
-		/*RTMP_SEM_LOCK(&pAd->MacTabLock); */
-		/*RTMP_SEM_LOCK(&pAd->TxSwQueueLock); */
-		RTMP_IRQ_LOCK(&pAd->irq_lock, IrqFlags);
+		/*spin_lock_bh(&pAd->MacTabLock); */
+		/*spin_lock_bh(&pAd->TxSwQueueLock); */
+		spin_lock_bh(&pAd->irq_lock);
 		if (isActive == false)
 		{
 			if (pMacEntry->PsQueue.Head)
@@ -178,8 +178,8 @@ void RtmpHandleRxPsPoll(
 			} /* End of while */
 		} /* End of if */
 
-		/*RTMP_SEM_UNLOCK(&pAd->TxSwQueueLock); */
-		/*RTMP_SEM_UNLOCK(&pAd->MacTabLock); */
+		/*spin_unlock_bh(&pAd->TxSwQueueLock); */
+		/*spin_unlock_bh(&pAd->MacTabLock); */
 
 		if ((Aid > 0) && (Aid < MAX_LEN_OF_MAC_TABLE) &&
 			(pMacEntry->PsQueue.Number == 0))
@@ -188,7 +188,7 @@ void RtmpHandleRxPsPoll(
 			pMacEntry->PsQIdleCount = 0;
 		}
 
-		RTMP_IRQ_UNLOCK(&pAd->irq_lock, IrqFlags);
+		spin_unlock_bh(&pAd->irq_lock);
 
 		/* Dequeue outgoing frames from TxSwQueue0..3 queue and process it */
 		/* TODO: 2004-12-27 it's not a good idea to handle "More Data" bit here. because the */

@@ -292,7 +292,7 @@ int mt7610u_vendor_request(struct rtmp_adapter *pAd, u8 requesttype, u8 request,
 					break;
 				}
 				RetryCount++;
-				RTMPusecDelay(5000); /* wait for 5ms*/
+				mdelay(5); /* wait for 5ms*/
 			}
 		} while((ret < 0 ) && (RetryCount < MAX_VENDOR_REQ_RETRY_COUNT));
 
@@ -395,7 +395,7 @@ static int ResetBulkOutHdlr(IN struct rtmp_adapter *pAd, struct rtmp_queue_elem 
 			break;
 
 		Index++;
-		RTMPusecDelay(10000);
+		mdelay(10);
 	}while(Index < 100);
 
 	MACValue = mt7610u_read32(pAd, USB_DMA_CFG);
@@ -412,14 +412,14 @@ static int ResetBulkOutHdlr(IN struct rtmp_adapter *pAd, struct rtmp_queue_elem 
 	mt7610u_write32(pAd, USB_DMA_CFG, MACValue);
 
 	/* Wait 1ms to prevent next URB to bulkout before HW reset. by MAXLEE 12-25-2007*/
-	RTMPusecDelay(1000);
+	mdelay(1);
 
 	MACValue &= (~0x80000);
 	mt7610u_write32(pAd, USB_DMA_CFG, MACValue);
 	DBGPRINT(RT_DEBUG_TRACE, ("\tSet 0x2a0 bit19. Clear USB DMA TX path\n"));
 
 	/* Wait 5ms to prevent next URB to bulkout before HW reset. by MAXLEE 12-25-2007*/
-	/*RTMPusecDelay(5000);*/
+	/*udelay(5000);*/
 
 	if ((pAd->bulkResetPipeid & BULKOUT_MGMT_RESET_FLAG) == BULKOUT_MGMT_RESET_FLAG)
 	{
@@ -435,7 +435,7 @@ static int ResetBulkOutHdlr(IN struct rtmp_adapter *pAd, struct rtmp_queue_elem 
 	{
 		pHTTXContext = &(pAd->TxContext[pAd->bulkResetPipeid]);
 
-		/*RTMP_SEM_LOCK(&pAd->BulkOutLock[pAd->bulkResetPipeid]);*/
+		/*spin_lock_bh(&pAd->BulkOutLock[pAd->bulkResetPipeid]);*/
 		RTMP_INT_LOCK(&pAd->BulkOutLock[pAd->bulkResetPipeid], IrqFlags);
 		if ( pAd->BulkOutPending[pAd->bulkResetPipeid] == false)
 		{
@@ -446,7 +446,7 @@ static int ResetBulkOutHdlr(IN struct rtmp_adapter *pAd, struct rtmp_queue_elem 
 			/* no matter what, clean the flag*/
 			RTMP_CLEAR_FLAG(pAd, fRTMP_ADAPTER_BULKOUT_RESET);
 
-			/*RTMP_SEM_UNLOCK(&pAd->BulkOutLock[pAd->bulkResetPipeid]);*/
+			/*spin_unlock_bh(&pAd->BulkOutLock[pAd->bulkResetPipeid]);*/
 			RTMP_INT_UNLOCK(&pAd->BulkOutLock[pAd->bulkResetPipeid], IrqFlags);
 
 			{
@@ -485,7 +485,7 @@ static int ResetBulkOutHdlr(IN struct rtmp_adapter *pAd, struct rtmp_queue_elem 
 		}
 		else
 		{
-			/*RTMP_SEM_UNLOCK(&pAd->BulkOutLock[pAd->bulkResetPipeid]);*/
+			/*spin_unlock_bh(&pAd->BulkOutLock[pAd->bulkResetPipeid]);*/
 			/*RTMP_INT_UNLOCK(&pAd->BulkOutLock[pAd->bulkResetPipeid], IrqFlags);*/
 
 			DBGPRINT(RT_DEBUG_ERROR, ("CmdThread : TX DATA RECOVER FAIL for BulkReq(0x%lx) because BulkOutPending[%d] is true!\n",
@@ -553,13 +553,13 @@ static int ResetBulkInHdlr(IN struct rtmp_adapter *pAd, struct rtmp_queue_elem *
 		{
 			DBGPRINT_RAW(RT_DEBUG_ERROR, ("BulkIn IRP Pending!!!\n"));
 			RTUSBCancelPendingBulkInIRP(pAd);
-			RTMPusecDelay(100000);
+			mdelay(100);
 			pAd->PendingRx = 0;
 		}
 	}
 
 	/* Wait 10ms before reading register.*/
-	RTMPusecDelay(10000);
+	mdelay(10);
 
 	/* It must be removed. Or ATE will have no RX success. */
 	if ((NT_SUCCESS(ntStatus) == true) &&
@@ -593,12 +593,12 @@ static int ResetBulkInHdlr(IN struct rtmp_adapter *pAd, struct rtmp_queue_elem *
 			int				ret = 0;
 			unsigned long	IrqFlags;
 
-			RTMP_IRQ_LOCK(&pAd->BulkInLock, IrqFlags);
+			spin_lock_bh(&pAd->BulkInLock);
 			pRxContext = &(pAd->RxContext[pAd->NextRxBulkInIndex]);
 
 			if ((pAd->PendingRx > 0) || (pRxContext->Readable == true) || (pRxContext->InUse == true))
 			{
-				RTMP_IRQ_UNLOCK(&pAd->BulkInLock, IrqFlags);
+				spin_unlock_bh(&pAd->BulkInLock);
 				return NDIS_STATUS_SUCCESS;
 			}
 
@@ -606,19 +606,19 @@ static int ResetBulkInHdlr(IN struct rtmp_adapter *pAd, struct rtmp_queue_elem *
 			pRxContext->IRPPending = true;
 			pAd->PendingRx++;
 			pAd->BulkInReq++;
-			RTMP_IRQ_UNLOCK(&pAd->BulkInLock, IrqFlags);
+			spin_unlock_bh(&pAd->BulkInLock);
 
 			/* Init Rx context descriptor*/
 			RTUSBInitRxDesc(pAd, pRxContext);
 			pUrb = pRxContext->pUrb;
 			if ((ret = usb_submit_urb(pUrb, GFP_ATOMIC))!=0)
 			{	/* fail*/
-				RTMP_IRQ_LOCK(&pAd->BulkInLock, IrqFlags);
+				spin_lock_bh(&pAd->BulkInLock);
 				pRxContext->InUse = false;
 				pRxContext->IRPPending = false;
 				pAd->PendingRx--;
 				pAd->BulkInReq--;
-				RTMP_IRQ_UNLOCK(&pAd->BulkInLock, IrqFlags);
+				spin_unlock_bh(&pAd->BulkInLock);
 				DBGPRINT(RT_DEBUG_ERROR, ("CMDTHREAD_RESET_BULK_IN: Submit Rx URB failed(%d), status=%d\n", ret, pUrb->status));
 			}
 			else
@@ -917,7 +917,7 @@ static int RT_Mac80211_ConnResultInfom(IN struct rtmp_adapter *pAd, struct rtmp_
 
 static int CmdRspEventCallback(IN struct rtmp_adapter *pAd, struct rtmp_queue_elem *CMDQelmt)
 {
-	struct rxfce_info_cmd *pFceInfo = CMDQelmt->buffer;
+	struct mt7610u_rxfce_info_cmd *pFceInfo = CMDQelmt->buffer;
 
 	return NDIS_STATUS_SUCCESS;
 }
@@ -1042,9 +1042,9 @@ void CMDHandler(struct rtmp_adapter *pAd)
 	while (pAd && pAd->CmdQ.size > 0) {
 		NdisStatus = NDIS_STATUS_SUCCESS;
 
-		RTMP_SEM_LOCK(&pAd->CmdQLock);
+		spin_lock_bh(&pAd->CmdQLock);
 		RTThreadDequeueCmd(&pAd->CmdQ, &cmdqelmt);
-		RTMP_SEM_UNLOCK(&pAd->CmdQLock);
+		spin_unlock_bh(&pAd->CmdQLock);
 
 		if (cmdqelmt == NULL)
 			break;

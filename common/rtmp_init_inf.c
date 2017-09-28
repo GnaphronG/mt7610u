@@ -215,7 +215,7 @@ int rt28xx_init(struct rtmp_adapter *pAd)
 
 	/* APInitialize(pAd);*/
 
-	RTMPusecDelay(10000);
+	mdelay(10);
 
 	/*
 		Some modules init must be called before APStartUp().
@@ -362,7 +362,7 @@ void RTMPDrvSTAOpen(struct rtmp_adapter *pAd)
 
 //+++Add by shiang for debug
 	DBGPRINT(RT_DEBUG_OFF, ("%s(1):Check if PDMA is idle!\n", __FUNCTION__));
-	AsicWaitPDMAIdle(pAd, 5, 10);
+	mt7610u_wait_pdma_usecs(pAd, 5, 10);
 //---Add by shiang for debug
 
 	/*
@@ -372,7 +372,7 @@ void RTMPDrvSTAOpen(struct rtmp_adapter *pAd)
 
 //+++Add by shiang for debug
 	DBGPRINT(RT_DEBUG_OFF, ("%s(2):Check if PDMA is idle!\n", __FUNCTION__));
-	AsicWaitPDMAIdle(pAd, 5, 10);
+	mt7610u_wait_pdma_usecs(pAd, 5, 10);
 //---Add by shiang for debug
 
 
@@ -417,7 +417,7 @@ void RTMPDrvSTAClose(
 		while (pAd->DeQueueRunning[i] == true)
 		{
 			DBGPRINT(RT_DEBUG_TRACE, ("Waiting for TxQueue[%d] done..........\n", i));
-			RTMPusecDelay(1000);
+			mdelay(1);
 		}
 	}
 
@@ -480,7 +480,7 @@ void RTMPDrvSTAClose(
 	memset(&pAd->MacTab, 0, sizeof(MAC_TABLE));
 
 	/* release all timers */
-	RTMPusecDelay(2000);
+	mdelay(2);
 	RTMP_TimerListRelease(pAd);
 
 #ifdef RTMP_TIMER_TASK_SUPPORT
@@ -551,7 +551,7 @@ void RTMPInfClose(struct rtmp_adapter *pAd)
 			kfree(MsgElem);
 			}
 
-			RTMPusecDelay(1000);
+			mdelay(1);
 		}
 
 #ifdef WPA_SUPPLICANT_SUPPORT

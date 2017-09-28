@@ -269,17 +269,17 @@ void MlmeHandler(struct rtmp_adapter*pAd)
 	/* Only accept MLME and Frame from peer side, no other (control/data) frame should*/
 	/* get into this state machine*/
 
-	RTMP_SEM_LOCK(&pAd->Mlme.TaskLock);
+	spin_lock_bh(&pAd->Mlme.TaskLock);
 	if(pAd->Mlme.bRunning)
 	{
-		RTMP_SEM_UNLOCK(&pAd->Mlme.TaskLock);
+		spin_unlock_bh(&pAd->Mlme.TaskLock);
 		return;
 	}
 	else
 	{
 		pAd->Mlme.bRunning = true;
 	}
-	RTMP_SEM_UNLOCK(&pAd->Mlme.TaskLock);
+	spin_unlock_bh(&pAd->Mlme.TaskLock);
 
 	while (!MlmeQueueEmpty(&pAd->Mlme.Queue))
 	{
@@ -375,9 +375,9 @@ void MlmeHandler(struct rtmp_adapter*pAd)
 		}
 	}
 
-	RTMP_SEM_LOCK(&pAd->Mlme.TaskLock);
+	spin_lock_bh(&pAd->Mlme.TaskLock);
 	pAd->Mlme.bRunning = false;
-	RTMP_SEM_UNLOCK(&pAd->Mlme.TaskLock);
+	spin_unlock_bh(&pAd->Mlme.TaskLock);
 }
 
 /*
@@ -476,7 +476,7 @@ void MlmeHalt(
 
 	}
 
-	RTMPusecDelay(5000);    /*  5 msec to gurantee Ant Diversity timer canceled*/
+	mdelay(5);    /*  5 msec to gurantee Ant Diversity timer canceled*/
 
 	MlmeQueueDestroy(&pAd->Mlme.Queue);
 
@@ -700,7 +700,7 @@ void MlmePeriodicExec(void *FunctionContext)
 						DBGPRINT(RT_DEBUG_OFF, ("%s - Do VCORecalibration again!(LastTemperatureforVCO=%d, NowTemperature = %d)\n",
 							__FUNCTION__, pAd->chipCap.LastTemperatureforVCO, pAd->chipCap.NowTemperature));
 						pAd->chipCap.LastTemperatureforVCO = pAd->chipCap.NowTemperature;
-						MT76x0_VCO_CalibrationMode3(pAd, pAd->hw_cfg.cent_ch);
+						mt7610u_vco_calibration(pAd, pAd->hw_cfg.cent_ch);
 					}
 
 				}
@@ -734,7 +734,7 @@ void MlmePeriodicExec(void *FunctionContext)
 			if (((MacReg & 0x20000000) && (MacReg & 0x80)) || ((MacReg & 0x20000000) && (MacReg & 0x20)))
 			{
 				mt7610u_write32(pAd, MAC_SYS_CTRL, 0x1);
-				RTMPusecDelay(1);
+				udelay(1);
 				MacReg = 0;
 				{
 					MacReg = 0xc;
@@ -3578,7 +3578,7 @@ bool MlmeEnqueue(
 		return false;
 	}
 
-	RTMP_SEM_LOCK(&(Queue->Lock));
+	spin_lock_bh(&(Queue->Lock));
 	Tail = Queue->Tail;
 	Queue->Tail++;
 	Queue->Num++;
@@ -3599,7 +3599,7 @@ bool MlmeEnqueue(
 		memmove(Queue->Entry[Tail].Msg, Msg, MsgLen);
 	}
 
-	RTMP_SEM_UNLOCK(&(Queue->Lock));
+	spin_unlock_bh(&(Queue->Lock));
 	return true;
 }
 
@@ -3669,7 +3669,7 @@ bool MlmeEnqueueForRecv(
 
 	/* OK, we got all the informations, it is time to put things into queue*/
 
-	RTMP_SEM_LOCK(&(Queue->Lock));
+	spin_lock_bh(&(Queue->Lock));
 	Tail = Queue->Tail;
 	Queue->Tail++;
 	Queue->Num++;
@@ -3698,7 +3698,7 @@ bool MlmeEnqueueForRecv(
 		memmove(Queue->Entry[Tail].Msg, Msg, MsgLen);
 	}
 
-	RTMP_SEM_UNLOCK(&(Queue->Lock));
+	spin_unlock_bh(&(Queue->Lock));
 	RTMP_MLME_HANDLER(pAd);
 
 	return true;
@@ -3719,7 +3719,7 @@ bool MlmeDequeue(
 	IN MLME_QUEUE *Queue,
 	OUT MLME_QUEUE_ELEM **Elem)
 {
-	RTMP_SEM_LOCK(&(Queue->Lock));
+	spin_lock_bh(&(Queue->Lock));
 	*Elem = &(Queue->Entry[Queue->Head]);
 	Queue->Num--;
 	Queue->Head++;
@@ -3727,7 +3727,7 @@ bool MlmeDequeue(
 	{
 		Queue->Head = 0;
 	}
-	RTMP_SEM_UNLOCK(&(Queue->Lock));
+	spin_unlock_bh(&(Queue->Lock));
 	return true;
 }
 
@@ -3808,9 +3808,9 @@ bool MlmeQueueEmpty(
 {
 	bool Ans;
 
-	RTMP_SEM_LOCK(&(Queue->Lock));
+	spin_lock_bh(&(Queue->Lock));
 	Ans = (Queue->Num == 0);
-	RTMP_SEM_UNLOCK(&(Queue->Lock));
+	spin_unlock_bh(&(Queue->Lock));
 
 	return Ans;
 }
@@ -3831,12 +3831,12 @@ bool MlmeQueueFull(
 {
 	bool Ans;
 
-	RTMP_SEM_LOCK(&(Queue->Lock));
+	spin_lock_bh(&(Queue->Lock));
 	if (SendId == 0)
 		Ans = ((Queue->Num >= (MAX_LEN_OF_MLME_QUEUE / 2)) || Queue->Entry[Queue->Tail].Occupied);
 	else
 		Ans = (Queue->Num == MAX_LEN_OF_MLME_QUEUE);
-	RTMP_SEM_UNLOCK(&(Queue->Lock));
+	spin_unlock_bh(&(Queue->Lock));
 
 	return Ans;
 }
@@ -3854,11 +3854,11 @@ bool MlmeQueueFull(
 void MlmeQueueDestroy(
 	IN MLME_QUEUE *pQueue)
 {
-	RTMP_SEM_LOCK(&(pQueue->Lock));
+	spin_lock_bh(&(pQueue->Lock));
 	pQueue->Num  = 0;
 	pQueue->Head = 0;
 	pQueue->Tail = 0;
-	RTMP_SEM_UNLOCK(&(pQueue->Lock));
+	spin_unlock_bh(&(pQueue->Lock));
 }
 
 

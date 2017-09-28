@@ -851,7 +851,7 @@ int	NICInitializeAdapter(
 	/* Set DMA global configuration except TX_DMA_EN and RX_DMA_EN bits */
 retry:
 
-	if (AsicWaitPDMAIdle(pAd, 100, 1000) != true) {
+	if (mt7610u_wait_pdma_usecs(pAd, 100, 1000) != true) {
 		if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST))
 			return NDIS_STATUS_FAILURE;
 	}
@@ -1001,7 +1001,7 @@ int	NICInitializeAsic(
 			break;
 
 		DBGPRINT(RT_DEBUG_TRACE, ("Check MAC_STATUS_CFG  = Busy = %x\n", MACValue));
-		RTMPusecDelay(1000);
+		mdelay(1);
 	} while (Index++ < 100);
 
 
@@ -1012,7 +1012,7 @@ int	NICInitializeAsic(
 		mt7610u_write32(pAd, H2M_INT_SRC, 0);
 
 	/* Wait to be stable.*/
-	RTMPusecDelay(1000);
+	mdelay(1);
 	pAd->LastMCUCmd = 0x72;
 
 	NICInitBBP(pAd);
@@ -1529,7 +1529,7 @@ void UserCfgInit(struct rtmp_adapter*pAd)
 	UINT i;
 /*	EDCA_PARM DefaultEdcaParm;*/
     UINT key_index, bss_index;
-	u8 TXWISize = sizeof(struct txwi_nmac);
+	u8 TXWISize = sizeof(struct mt7610u_txwi);
 
 	DBGPRINT(RT_DEBUG_TRACE, ("--> UserCfgInit\n"));
 
@@ -2047,7 +2047,7 @@ void RTMPInitTimer(
 	IN	void *				pData,
 	IN	bool 				Repeat)
 {
-	RTMP_SEM_LOCK(&TimerSemLock);
+	spin_lock_bh(&TimerSemLock);
 
 	RTMP_TimerListAdd(pAd, pTimer);
 
@@ -2065,7 +2065,7 @@ void RTMPInitTimer(
 
 	RTMP_OS_Init_Timer(&pTimer->TimerObj,	pTimerFunc, (void *) pTimer, &pAd->RscTimerMemList);
 
-	RTMP_SEM_UNLOCK(&TimerSemLock);
+	spin_unlock_bh(&TimerSemLock);
 }
 
 
@@ -2091,7 +2091,7 @@ void RTMPSetTimer(
 	IN	PRALINK_TIMER_STRUCT	pTimer,
 	IN	ULONG					Value)
 {
-	RTMP_SEM_LOCK(&TimerSemLock);
+	spin_lock_bh(&TimerSemLock);
 
 	if (pTimer->Valid)
 	{
@@ -2101,7 +2101,7 @@ void RTMPSetTimer(
 		if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_HALT_IN_PROGRESS | fRTMP_ADAPTER_NIC_NOT_EXIST))
 		{
 			DBGPRINT_ERR(("RTMPSetTimer failed, Halt in Progress!\n"));
-			RTMP_SEM_UNLOCK(&TimerSemLock);
+			spin_unlock_bh(&TimerSemLock);
 			return;
 		}
 
@@ -2124,7 +2124,7 @@ void RTMPSetTimer(
 	{
 		DBGPRINT_ERR(("RTMPSetTimer failed, Timer hasn't been initialize!\n"));
 	}
-	RTMP_SEM_UNLOCK(&TimerSemLock);
+	spin_unlock_bh(&TimerSemLock);
 }
 
 
@@ -2153,7 +2153,7 @@ void RTMPModTimer(
 	bool Cancel;
 
 
-	RTMP_SEM_LOCK(&TimerSemLock);
+	spin_lock_bh(&TimerSemLock);
 
 	if (pTimer->Valid)
 	{
@@ -2161,21 +2161,21 @@ void RTMPModTimer(
 		pTimer->State      = false;
 		if (pTimer->PeriodicType == true)
 		{
-			RTMP_SEM_UNLOCK(&TimerSemLock);
+			spin_unlock_bh(&TimerSemLock);
 			RTMPCancelTimer(pTimer, &Cancel);
 			RTMPSetTimer(pTimer, Value);
 		}
 		else
 		{
 			RTMP_OS_Mod_Timer(&pTimer->TimerObj, Value);
-			RTMP_SEM_UNLOCK(&TimerSemLock);
+			spin_unlock_bh(&TimerSemLock);
 		}
 		DBGPRINT(RT_DEBUG_TRACE,("%s: %lx\n",__FUNCTION__, (ULONG)pTimer));
 	}
 	else
 	{
 		DBGPRINT_ERR(("RTMPModTimer failed, Timer hasn't been initialize!\n"));
-		RTMP_SEM_UNLOCK(&TimerSemLock);
+		spin_unlock_bh(&TimerSemLock);
 	}
 }
 
@@ -2205,7 +2205,7 @@ void RTMPCancelTimer(
 	IN	PRALINK_TIMER_STRUCT	pTimer,
 	OUT	bool 				*pCancelled)
 {
-	RTMP_SEM_LOCK(&TimerSemLock);
+	spin_lock_bh(&TimerSemLock);
 
 	if (pTimer->Valid)
 	{
@@ -2230,7 +2230,7 @@ void RTMPCancelTimer(
 		DBGPRINT(RT_DEBUG_INFO,("RTMPCancelTimer failed, Timer hasn't been initialize!\n"));
 	}
 
-	RTMP_SEM_UNLOCK(&TimerSemLock);
+	spin_unlock_bh(&TimerSemLock);
 }
 
 
@@ -2238,7 +2238,7 @@ void RTMPReleaseTimer(
 	IN	PRALINK_TIMER_STRUCT	pTimer,
 	OUT	bool 				*pCancelled)
 {
-	RTMP_SEM_LOCK(&TimerSemLock);
+	spin_lock_bh(&TimerSemLock);
 
 	if (pTimer->Valid)
 	{
@@ -2268,7 +2268,7 @@ void RTMPReleaseTimer(
 		DBGPRINT(RT_DEBUG_INFO,("RTMPReleasefailed, Timer hasn't been initialize!\n"));
 	}
 
-	RTMP_SEM_UNLOCK(&TimerSemLock);
+	spin_unlock_bh(&TimerSemLock);
 }
 
 

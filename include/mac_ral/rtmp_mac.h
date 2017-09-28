@@ -44,16 +44,16 @@
 
 /* the first 24-byte in TXD is called TXINFO and will be DMAed to MAC block through TXFIFO. */
 /* MAC block use this TXINFO to control the transmission behavior of this frame. */
-#define FIFO_MGMT	0
-#define FIFO_HCCA	1
-#define FIFO_EDCA	2
+
+
+enum mt76_qsel {
+	MT_QSEL_MGMT,
+	MT_QSEL_HCCA,
+	MT_QSEL_EDCA,
+	MT_QSEL_EDCA_2,
+};
 
 #define TXINFO_SIZE			4
-union __attribute__ ((packed)) txinfo_nmac {
-	struct txinfo_nmac_pkt txinfo_nmac_pkt;
-	struct txinfo_nmac_cmd txinfo_nmac_cmd;
-	u32 word;
-};
 
 
 /*
@@ -62,7 +62,7 @@ union __attribute__ ((packed)) txinfo_nmac {
 
 #define RXINFO_SIZE			4
 #ifdef RT_BIG_ENDIAN
-struct __attribute__ ((packed)) rtmp_rxinfo {
+struct __attribute__ ((packed)) mt7610u_rxinfo {
 	u32		ip_sum_err:1;		/* IP checksum error */
 	u32		tcp_sum_err:1;	/* TCP checksum error */
 	u32		rsv:1;
@@ -94,7 +94,7 @@ struct __attribute__ ((packed)) rtmp_rxinfo {
 	u32		BA:1;
 };
 #else
-struct __attribute__ ((packed)) rtmp_rxinfo {
+struct __attribute__ ((packed)) mt7610u_rxinfo {
 	u32		BA:1;
 	u32		DATA:1;
 	u32		NULLDATA:1;
@@ -2167,9 +2167,9 @@ typedef	union _QOS_CSR1_STRUC {
 
 struct rtmp_adapter;
 
-INT get_pkt_phymode_by_rxwi(struct rxwi_nmac *rxwi);
-INT get_pkt_rssi_by_rxwi(struct rxwi_nmac *rxwi, INT size, CHAR *rssi);
-INT get_pkt_snr_by_rxwi(struct rxwi_nmac *rxwi, INT size, u8 *snr);
+INT get_pkt_phymode_by_rxwi(struct mt7610u_rxwi *rxwi);
+INT get_pkt_rssi_by_rxwi(struct mt7610u_rxwi *rxwi, INT size, CHAR *rssi);
+INT get_pkt_snr_by_rxwi(struct mt7610u_rxwi *rxwi, INT size, u8 *snr);
 
 void mt7610u_mac_set_ctrlch(struct rtmp_adapter*pAd, int extch);
 INT rtmp_mac_set_mmps(struct  rtmp_adapter *pAd, INT ReduceCorePower);

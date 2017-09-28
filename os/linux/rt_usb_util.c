@@ -92,12 +92,12 @@ void RtmpOsUsbEmptyUrbCheck(
 	while(i < 25) {
 /*		unsigned long IrqFlags; */
 
-		RTMP_SEM_LOCK(pBulkInLock);
+		spin_lock_bh(pBulkInLock);
 		if (*pPendingRx == 0) {
-			RTMP_SEM_UNLOCK(pBulkInLock);
+			spin_unlock_bh(pBulkInLock);
 			break;
 		}
-		RTMP_SEM_UNLOCK(pBulkInLock);
+		spin_unlock_bh(pBulkInLock);
 
 		msleep(UNLINK_TIMEOUT_MS);	/*Time in millisecond */
 		i++;

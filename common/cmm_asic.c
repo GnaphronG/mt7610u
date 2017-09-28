@@ -875,23 +875,23 @@ void AsicEnableIbssSync(
 	u8 *		ptr;
 	UINT i;
 	ULONG beaconBaseLocation = 0;
-	USHORT			beaconLen = (USHORT) pAd->BeaconTxWI.TxWIMPDUByteCnt;
-	u8 TXWISize = sizeof(struct txwi_nmac);
+	USHORT			beaconLen = (USHORT) pAd->BeaconTxWI.MPDUtotalByteCnt;
+	u8 TXWISize = sizeof(struct mt7610u_txwi);
 
 #ifdef RT_BIG_ENDIAN
 	{
-	struct txwi_nmac 	localTxWI;
+	struct mt7610u_txwi 	localTxWI;
 
 	memmove((u8 *)&localTxWI, (u8 *)&pAd->BeaconTxWI, TXWISize);
 	RTMPWIEndianChange(&localTxWI, sizeof(*localTxWI));
-	beaconLen = (USHORT) localTxWI.TxWIMPDUByteCnt;
+	beaconLen = (USHORT) localTxWI.MPDUtotalByteCnt;
 	}
 #endif /* RT_BIG_ENDIAN */
 
-	DBGPRINT(RT_DEBUG_TRACE, ("--->AsicEnableIbssSync(TxWIMPDUByteCnt=%d, beaconLen=%d)\n", pAd->BeaconTxWI.TxWIMPDUByteCnt, beaconLen));
+	DBGPRINT(RT_DEBUG_TRACE, ("--->AsicEnableIbssSync(MPDUtotalByteCnt=%d, beaconLen=%d)\n", pAd->BeaconTxWI.MPDUtotalByteCnt, beaconLen));
 
 
-	DBGPRINT(RT_DEBUG_TRACE, ("--->AsicEnableIbssSync(ADHOC mode. TxWIMPDUByteCnt = %d)\n", pAd->BeaconTxWI.TxWIMPDUByteCnt));
+	DBGPRINT(RT_DEBUG_TRACE, ("--->AsicEnableIbssSync(ADHOC mode. MPDUtotalByteCnt = %d)\n", pAd->BeaconTxWI.MPDUtotalByteCnt));
 
 	csr9.word = mt7610u_read32(pAd, BCN_TIME_CFG);
 	csr9.field.bBeaconGen = 0;
@@ -915,7 +915,7 @@ void AsicEnableIbssSync(
 
 	/* start right after the 16-byte TXWI field*/
 	ptr = pAd->BeaconBuf;
-	/*for (i=0; i< pAd->BeaconTxWI.TxWIMPDUByteCnt; i+=2)*/
+	/*for (i=0; i< pAd->BeaconTxWI.MPDUtotalByteCnt; i+=2)*/
 	for (i = 0; i< beaconLen; i += 4) {
 		u32 dword;
 
@@ -1736,7 +1736,9 @@ INT AsicSetPreTbttInt(struct rtmp_adapter*pAd, bool enable)
 }
 
 
-bool AsicWaitPDMAIdle(struct rtmp_adapter *pAd, INT round, INT wait_us)
+/* ULLI : we need a better name here ... */
+
+bool mt7610u_wait_pdma_usecs(struct rtmp_adapter *pAd, int round, int wait_us)
 {
 	INT i = 0;
 	WPDMA_GLO_CFG_STRUC GloCfg;
@@ -1750,7 +1752,7 @@ bool AsicWaitPDMAIdle(struct rtmp_adapter *pAd, INT round, INT wait_us)
 		}
 		if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST))
 			return false;
-		RTMPusecDelay(wait_us);
+		udelay(wait_us);
 	}while ((i++) < round);
 
 	DBGPRINT(RT_DEBUG_TRACE, ("==>  DMABusy, GloCfg=0x%x\n", GloCfg.word));

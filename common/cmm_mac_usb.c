@@ -73,14 +73,14 @@ void RTMPResetTxRxRingMemory(struct rtmp_adapter* pAd)
 		struct sk_buff * pPacket;
 		PQUEUE_HEADER pQueue;
 
-		RTMP_IRQ_LOCK(&pAd->irq_lock, IrqFlags);
+		spin_lock_bh(&pAd->irq_lock);
 		pQueue = &pAd->TxSwQueue[index];
 		while (pQueue->Head) {
 			pEntry = RemoveHeadQueue(pQueue);
 			pPacket = QUEUE_ENTRY_TO_PACKET(pEntry);
 			dev_kfree_skb_any(pPacket);
 		}
-		RTMP_IRQ_UNLOCK(&pAd->irq_lock, IrqFlags);
+		spin_unlock_bh(&pAd->irq_lock);
 	}
 
 	/* unlink all urbs for the RECEIVE buffer queue.*/
@@ -192,6 +192,7 @@ void RTMPFreeTxRxRingMemory(struct rtmp_adapter *pAd)
 						  pRxContext->TransferBuffer,
 						  pRxContext->data_dma);
 				pRxContext->TransferBuffer = NULL;
+			}
 		}
 	}
 
@@ -263,7 +264,7 @@ void RTMPFreeTxRxRingMemory(struct rtmp_adapter *pAd)
 	/* Free Tx frame resource*/
 	for (acidx = 0; acidx < 4; acidx++) {
 		PHT_TX_CONTEXT pHTTXContext = &(pAd->TxContext[acidx]);
-		if (pHTTXContext)
+		if (pHTTXContext) {
 			if (pHTTXContext->pUrb) {
 				usb_kill_urb(pHTTXContext->pUrb);
 				usb_free_urb(pHTTXContext->pUrb);
@@ -663,9 +664,9 @@ int RTMPInitTxRxRingMemory(struct rtmp_adapter *pAd)
 
 	/* Init the CmdQ and CmdQLock*/
 	spin_lock_init(&pAd->CmdQLock);
-	RTMP_SEM_LOCK(&pAd->CmdQLock);
+	spin_lock_bh(&pAd->CmdQLock);
 	RTInitializeCmdQ(&pAd->CmdQ);
-	RTMP_SEM_UNLOCK(&pAd->CmdQLock);
+	spin_unlock_bh(&pAd->CmdQLock);
 
 
 	spin_lock_init(&pAd->MLMEBulkOutLock);
@@ -712,12 +713,12 @@ void RT28XXDMAEnable(struct rtmp_adapter*pAd)
 
 	mt7610u_write32(pAd, MAC_SYS_CTRL, 0x4);
 
-	if (AsicWaitPDMAIdle(pAd, 200, 1000) == false) {
+	if (mt7610u_wait_pdma_usecs(pAd, 200, 1000) == false) {
 		if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST))
 			return;
 	}
 
-	RTMPusecDelay(50);
+	udelay(50);
 
 	/* for last packet, PBF might use more than limited, so minus 2 to prevent from error */
 	val = FIELD_PREP(MT_USB_DMA_CFG_RX_BULK_AGG_LMT, (MAX_RXBULK_SIZE / 1024) - 3) |
@@ -745,7 +746,7 @@ void RTUSBBssBeaconStart(struct rtmp_adapter*pAd)
 {
 	int apidx;
 	BEACON_SYNC_STRUCT	*pBeaconSync;
-	u8 TXWISize = sizeof(struct txwi_nmac);
+	u8 TXWISize = sizeof(struct mt7610u_txwi);
 /*	LARGE_INTEGER 	tsfTime, deltaTime;*/
 
 	pBeaconSync = pAd->CommonCfg.pBeaconSync;
@@ -789,7 +790,7 @@ void RTUSBBssBeaconInit(struct rtmp_adapter*pAd)
 {
 	BEACON_SYNC_STRUCT	*pBeaconSync;
 	int i, j;
-	u8 TXWISize = sizeof(struct txwi_nmac);
+	u8 TXWISize = sizeof(struct mt7610u_txwi);
 
 	pAd->CommonCfg.pBeaconSync =
 		kmalloc(sizeof(BEACON_SYNC_STRUCT), GFP_ATOMIC);
@@ -1003,7 +1004,7 @@ void RT28xxUsbMlmeRadioOFF(
 /*				kfree(pMsgElem);*/
 				kfree(pMsgElem);
 
-				RTMPusecDelay(1000);
+				mdelay(1);
 			}
 		}
 	}
@@ -1017,7 +1018,8 @@ void RT28xxUsbMlmeRadioOFF(
 		/* Link down first if any association exists*/
 		if (INFRA_ON(pAd) || ADHOC_ON(pAd))
 			LinkDown(pAd, false);
-		RTMPusecDelay(10000);
+
+		mdelay(10);
 
 		/*==========================================*/
 		/* Clean up old bss table*/
@@ -1068,7 +1070,7 @@ bool AsicCheckCommandOk(
 			break;
 		}
 
-		RTMPusecDelay(100);
+		udelay(100);
 		i++;
 	} while (i < 200);
 

@@ -46,7 +46,7 @@ enum D_PORT {
 #include "rtmp_type.h"
 
 #ifdef RT_BIG_ENDIAN
-struct __attribute__ ((packed)) txinfo_nmac_pkt {
+struct __attribute__ ((packed)) mt7610_txinfo_pkt {
 	u32 info_type:2;
 	u32 d_port:3;
 	u32 QSEL:2;
@@ -55,17 +55,17 @@ struct __attribute__ ((packed)) txinfo_nmac_pkt {
 	u32 cso:1;
 	u32 tso:1;
 	u32 pkt_80211:1;
-	u32 rsv0:1;
+	u32 sw_lst_rnd:1;
 	u32 tx_burst:1;
 	u32 next_vld:1;
 	u32 pkt_len:16;
 };
 #else
-struct __attribute__ ((packed)) txinfo_nmac_pkt {
+struct __attribute__ ((packed)) mt7610_txinfo_pkt {
 	u32 pkt_len:16;
 	u32 next_vld:1;
 	u32 tx_burst:1;
-	u32 rsv0:1;
+	u32 sw_lst_rnd:1;
 	u32 pkt_80211:1;
 	u32 tso:1;
 	u32 cso:1;
@@ -78,7 +78,7 @@ struct __attribute__ ((packed)) txinfo_nmac_pkt {
 #endif /* RT_BIG_ENDIAN */
 
 #ifdef RT_BIG_ENDIAN
-struct __attribute__ ((packed)) txinfo_nmac_cmd{
+struct __attribute__ ((packed)) mt7610_txinfo_cmd{
 	u32 info_type:2;
 	u32 d_port:3;
 	u32 cmd_type:7;
@@ -86,7 +86,7 @@ struct __attribute__ ((packed)) txinfo_nmac_cmd{
 	u32 pkt_len:16;
 };
 #else
-struct __attribute__ ((packed)) txinfo_nmac_cmd{
+struct __attribute__ ((packed)) mt7610_txinfo_cmd{
 	u32 pkt_len:16;
 	u32 cmd_seq:4;
 	u32 cmd_type:7;
@@ -112,7 +112,7 @@ struct __attribute__ ((packed)) rtmp_led_cmd{
 #endif /* RT_BIG_ENDIAN */
 
 #ifdef RT_BIG_ENDIAN
-struct __attribute__ ((packed)) txwi_nmac {
+struct __attribute__ ((packed)) mt7610u_txwi {
 	/* Word 0 */
 	u32		PHYMODE:3;
 	u32		iTxBF:1;
@@ -159,7 +159,7 @@ struct __attribute__ ((packed)) txwi_nmac {
 	u32		TxEAPId:8;
 };
 #else
-struct __attribute__ ((packed)) txwi_nmac {
+struct __attribute__ ((packed)) mt7610u_txwi {
 	/* Word	0 */
 	/* ex: 00 03 00 40 means txop = 3, PHYMODE = 1 */
 	u32		FRAG:1;		/* 1 to inform TKIP engine this is a fragment. */
@@ -210,29 +210,6 @@ struct __attribute__ ((packed)) txwi_nmac {
 };
 #endif
 
-#define TxWITIM				TIM
-#define TxWITxBfPTSca			TXBF_PT_SCA
-#define TxWIMPDUByteCnt			MPDUtotalByteCnt
-#define TxWIWirelessCliID		wcid
-#define TxWIFRAG			FRAG
-#define TxWICFACK			CFACK
-#define TxWITS				TS
-#define TxWIAMPDU			AMPDU
-#define TxWIACK				ACK
-#define TxWITXOP			txop
-#define TxWINSEQ			NSEQ
-#define TxWIBAWinSize			BAWinSize
-#define TxWIShortGI			ShortGI
-#define TxWISTBC			STBC
-#define TxWIPacketId			TxPktId
-#define TxWIBW				BW
-#define TxWILDPC			LDPC
-#define TxWIMCS				MCS
-#define TxWIPHYMODE			PHYMODE
-#define TxWIMIMOps			MIMOps
-#define TxWIMpduDensity			MpduDensity
-#define TxWILutEn			lut_en
-
 
 /*
 	Rx Memory layout:
@@ -245,7 +222,7 @@ struct __attribute__ ((packed)) txwi_nmac {
 
 
 #ifdef RT_BIG_ENDIAN
-typedef struct __attribute__ ((packed)) _RXFCE_INFO{
+struct __attribute__ ((packed)) mt7610u_rxfce_info_pkt {
 	u32 info_type:2;
 	u32 s_port:3;
 	u32 qsel:2;
@@ -260,9 +237,9 @@ typedef struct __attribute__ ((packed)) _RXFCE_INFO{
 
 	u32 rsv:2;
 	u32 pkt_len:14;
-}RXFCE_INFO;
+};
 #else
-typedef struct __attribute__ ((packed)) _RXFCE_INFO{
+struct __attribute__ ((packed)) mt7610u_rxfce_info_pkt {
 	u32 pkt_len:14;
 	u32 rsv:2;
 
@@ -277,11 +254,11 @@ typedef struct __attribute__ ((packed)) _RXFCE_INFO{
 	u32 qsel:2;
 	u32 s_port:3;
 	u32 info_type:2;
-}RXFCE_INFO;
+};
 #endif /* RT_BIG_ENDIAN */
 
 #ifdef RT_BIG_ENDIAN
-struct __attribute__ ((packed)) rxfce_info_cmd {
+struct __attribute__ ((packed)) mt7610u_rxfce_info_cmd {
 	u32 info_type:2;
 	u32 d_port:3;
 	u32 qsel:2;
@@ -293,7 +270,7 @@ struct __attribute__ ((packed)) rxfce_info_cmd {
 	u32 pkt_len:14;
 };
 #else
-struct __attribute__ ((packed)) rxfce_info_cmd {
+struct __attribute__ ((packed)) mt7610u_rxfce_info_cmd {
 	u32 pkt_len:14;
 	u32 rsv:1;
 	u32 self_gen:1;
@@ -307,80 +284,11 @@ struct __attribute__ ((packed)) rxfce_info_cmd {
 #endif
 
 
-#ifdef RT_BIG_ENDIAN
-typedef struct __attribute__ ((packed)) _RXINFO_NMAC{
-	u32 ic_err:1;
-	u32 tc_err:1;
-	u32 rsv:1;
-	u32 action_wanted:1;
-	u32 deauth:1;
-	u32 disasso:1;
-	u32 beacon:1;
-	u32 probe_rsp:1;
-	u32 sw_fc_type1:1;
-	u32 sw_fc_type0:1;
-	u32 pn_len:3;
-	u32 wapi_kid:1;
-	u32 bssid_idx3:1;
-	u32 dec:1;
-	u32 ampdu:1;
-	u32 l2pad:1;
-	u32 rssi:1;
-	u32 htc:1;
-	u32 amsdu:1;
-	u32 mic_err:1;
-	u32 icv_err:1;
-	u32 crc_err:1;
-	u32 mybss:1;
-	u32 bc:1;
-	u32 mc:1;
-	u32 u2me:1;
-	u32 frag:1;
-	u32 null:1;
-	u32 data:1;
-	u32 ba:1;
-};
-#else
-typedef struct __attribute__ ((packed)) _RXINFO_NMAC{
-	u32 ba:1;
-	u32 data:1;
-	u32 null:1;
-	u32 frag:1;
-	u32 u2me:1;
-	u32 mcast:1;
-	u32 bcast:1;
-	u32 mybss:1;
-	u32 crc_err:1;
-	u32 icv_err:1;
-	u32 mic_err:1;
-	u32 amsdu:1;
-	u32 htc:1;
-	u32 rssi:1;
-	u32 l2pad:1;
-	u32 ampdu:1;
-	u32 dec:1;
-	u32 bssid_idx3:1;
-	u32 wapi_kid:1;
-	u32 pn_len:3;
-	u32 sw_fc_type0:1;
-	u32 sw_fc_type1:1;
-	u32 probe_rsp:1;
-	u32 beacon:1;
-	u32 disasso:1;
-	u32 deauth:1;
-	u32 action_wanted:1;
-	u32 rsv:1;
-	u32 tc_err:1;
-	u32 ic_err:1;
-}RXINFO_NMAC;
-#endif /* RT_BIG_ENDIAN */
-
-
 /*
 	RXWI wireless information format.
 */
 #ifdef RT_BIG_ENDIAN
-struct rxwi_nmac __attribute__ ((packed)) {
+struct __attribute__ ((packed)) mt7610u_rxwi {
 	/* Word 0 */
 	u32 eof:1;
 	u32 rsv:1;
@@ -409,7 +317,7 @@ struct rxwi_nmac __attribute__ ((packed)) {
 	u8 bbp_rxinfo[16];
 };
 #else
-struct __attribute__ ((packed)) rxwi_nmac {
+struct __attribute__ ((packed)) mt7610u_rxwi {
 	/* Word 0 */
 	u32 wcid:8;
 	u32 key_idx:2;
@@ -438,49 +346,6 @@ struct __attribute__ ((packed)) rxwi_nmac {
 	u8 bbp_rxinfo[16];
 };
 #endif /* RT_BIG_ENDIAN */
-
-
-#define RxWIMPDUByteCnt			MPDUtotalByteCnt
-#define RxWIWirelessCliID		wcid
-#define RxWIKeyIndex			key_idx
-#define RxWIMCS				mcs
-#define RxWILDPC			ldpc
-#define RxWIBW				bw
-#define RxWIBSSID			bss_idx
-#define RxWISGI				sgi
-#define RxWIPhyMode			phy_mode
-#define RxWISTBC			stbc
-#define RxWITID				tid
-#define RxWIRSSI0			rssi[0]
-#define RxWIRSSI1			rssi[1]
-#define RxWIRSSI2			rssi[2]
-#define RxWIRSSI3			rssi[3]
-#define RxWISNR0			bbp_rxinfo[0]
-#define RxWISNR1			bbp_rxinfo[1]
-#define RxWISNR2			bbp_rxinfo[2]
-#define RxWIFOFFSET			bbp_rxinfo[3]
-
-
-typedef struct __attribute__ ((packed)) _HW_RATE_CTRL_STRUCT_{
-#ifdef RT_BIG_ENDIAN
-	UINT16 PHYMODE:3;
-	UINT16 iTxBF:1;
-	UINT16 eTxBF:1;
-	UINT16 STBC:1;
-	UINT16 ShortGI:1;
-	UINT16 BW:2;			/* channel bandwidth 20/40/80 MHz */
-	UINT16 MCS:7;
-#else
-	UINT16 MCS:7;
-	UINT16 BW:2;
-	UINT16 ShortGI:1;
-	UINT16 STBC:1;
-	UINT16 eTxBF:1;
-	UINT16 iTxBF:1;
-	UINT16 PHYMODE:3;
-#endif /* RT_BIG_ENDIAN */
-}HW_RATE_CTRL_STRUCT;
-
 
 /* ================================================================================= */
 /* Register format */
@@ -671,44 +536,6 @@ typedef union _TSO_CTRL_STRUC {
 	|TXINO|TXWI|WIFI INFO|802.3 MAC Header|Pyaload|
 */
 
-#define WIFI_INFO_SIZE		0
-#ifdef RT_BIG_ENDIAN
-typedef union __attribute__ ((packed)) _WIFI_INFO_STRUC {
-	struct {
-    	u32 More_Data:1;
-    	u32 WEP:1;
-    	u32 PS:1;
-    	u32 RDG:1;
-    	u32 QoS:1;
-    	u32 EOSP:1;
-    	u32 TID:4;
-    	u32 Mode:2;
-    	u32 VLAN:1;
-    	u32 Rsv:3;
-    	u32 BssIdx:4;
-    	u32 Seq_Num:12;
-	} field;
-	u32 word;
-} WIFI_INFO_STRUC, *PWIFI_INFO_STRUC;
-#else
-typedef union __attribute__ ((packed)) _WIFI_INFO_STRUC {
-	struct {
-    	u32 Seq_Num:12;
-    	u32 BssIdx:4;
-    	u32 Rsv:3;
-    	u32 VLAN:1;
-    	u32 Mode:2;
-    	u32 TID:4;
-    	u32 EOSP:1;
-    	u32 QoS:1;
-    	u32 RDG:1;
-    	u32 PS:1;
-    	u32 WEP:1;
-    	u32 More_Data:1;
-	} field;
-	u32 word;
-} WIFI_INFO_STRUC, *PWIFI_INFO_STRUC;
-#endif /* RT_BIG_ENDIAN */
 
 /*
 	header translation control register

@@ -33,7 +33,7 @@ void STARxEAPOLFrameIndicate(
 	IN RX_BLK *pRxBlk,
 	IN u8 FromWhichBSSID)
 {
-	struct rxwi_nmac *pRxWI = pRxBlk->pRxWI;
+	struct mt7610u_rxwi *pRxWI = pRxBlk->pRxWI;
 	u8 *pTmpBuf;
 
 
@@ -108,11 +108,11 @@ void STARxEAPOLFrameIndicate(
 		{
 			pTmpBuf = pRxBlk->pData - LENGTH_802_11;
 			memmove(pTmpBuf, pRxBlk->pHeader, LENGTH_802_11);
-			REPORT_MGMT_FRAME_TO_MLME(pAd, pRxWI->RxWIWirelessCliID,
+			REPORT_MGMT_FRAME_TO_MLME(pAd, pRxWI->wcid,
 						  pTmpBuf,
 						  pRxBlk->DataSize +
-						  LENGTH_802_11, pRxWI->RxWIRSSI0,
-						  pRxWI->RxWIRSSI1, pRxWI->RxWIRSSI2,
+						  LENGTH_802_11, pRxWI->rssi[0],
+						  pRxWI->rssi[1], pRxWI->rssi[2],
 						  0,
 						  OPMODE_STA);
 			DBGPRINT_RAW(RT_DEBUG_TRACE,
@@ -211,7 +211,7 @@ bool STACheckTkipMICValue(
 	PCIPHER_KEY pWpaKey;
 	u8 *pDA, *pSA;
 
-	pWpaKey = &pAd->SharedKey[BSS0][pRxBlk->pRxWI->RxWIKeyIndex];
+	pWpaKey = &pAd->SharedKey[BSS0][pRxBlk->pRxWI->key_idx];
 
 	pDA = pHeader->Addr1;
 	if (RX_BLK_TEST_FLAG(pRxBlk, fRX_INFRA)) {
@@ -261,8 +261,8 @@ void STAHandleRxDataFrame(
 	IN struct rtmp_adapter *pAd,
 	IN RX_BLK *pRxBlk)
 {
-	struct rxwi_nmac *pRxWI = pRxBlk->pRxWI;
-	struct rtmp_rxinfo *pRxInfo = pRxBlk->pRxInfo;
+	struct mt7610u_rxwi *pRxWI = pRxBlk->pRxWI;
+	struct mt7610u_rxinfo *pRxInfo = pRxBlk->pRxInfo;
 	PHEADER_802_11 pHeader = pRxBlk->pHeader;
 	struct sk_buff * skb = pRxBlk->skb;
 	bool bFragment = false;
@@ -272,8 +272,8 @@ void STAHandleRxDataFrame(
 
 	if ((pHeader->FC.FrDs == 1) && (pHeader->FC.ToDs == 1)) {
 #ifdef CLIENT_WDS
-			if ((pRxWI->RxWIWirelessCliID < MAX_LEN_OF_MAC_TABLE)
-			    && IS_ENTRY_CLIENT(&pAd->MacTab.Content[pRxWI->RxWIWirelessCliID])) {
+			if ((pRxWI->wcid < MAX_LEN_OF_MAC_TABLE)
+			    && IS_ENTRY_CLIENT(&pAd->MacTab.Content[pRxWI->wcid])) {
 			RX_BLK_SET_FLAG(pRxBlk, fRX_WDS);
 		} else
 #endif /* CLIENT_WDS */
@@ -288,14 +288,14 @@ void STAHandleRxDataFrame(
 
 #ifdef QOS_DLS_SUPPORT
 		if (RTMPRcvFrameDLSCheck
-		    (pAd, pHeader, pRxWI->RxWIMPDUByteCnt, pRxD)) {
+		    (pAd, pHeader, pRxWI->MPDUtotalByteCnt, pRxD)) {
 			return;
 		}
 #endif /* QOS_DLS_SUPPORT */
 
 		/* Drop not my BSS frames */
-		if (pRxWI->RxWIWirelessCliID < MAX_LEN_OF_MAC_TABLE)
-			pEntry = &pAd->MacTab.Content[pRxWI->RxWIWirelessCliID];
+		if (pRxWI->wcid < MAX_LEN_OF_MAC_TABLE)
+			pEntry = &pAd->MacTab.Content[pRxWI->wcid];
 
 		if (pRxInfo->MyBss == 0) {
 			{
@@ -344,8 +344,8 @@ void STAHandleRxDataFrame(
 		}
 
 		/*/ find pEntry */
-		if (pRxWI->RxWIWirelessCliID < MAX_LEN_OF_MAC_TABLE) {
-			pEntry = &pAd->MacTab.Content[pRxWI->RxWIWirelessCliID];
+		if (pRxWI->wcid < MAX_LEN_OF_MAC_TABLE) {
+			pEntry = &pAd->MacTab.Content[pRxWI->wcid];
 
 		} else {
 			dev_kfree_skb_any(skb);
@@ -360,7 +360,7 @@ void STAHandleRxDataFrame(
 				RX_BLK_SET_FLAG(pRxBlk, fRX_DLS);
 			else
 #endif
-				ASSERT(pRxWI->RxWIWirelessCliID == BSSID_WCID);
+				ASSERT(pRxWI->wcid == BSSID_WCID);
 		}
 
 	}
@@ -415,7 +415,7 @@ void STAHandleRxDataFrame(
 	/* 3. Order bit: A-Ralink or HTC+ */
 	if (pHeader->FC.Order) {
 #ifdef AGGREGATION_SUPPORT
-		if ((pRxWI->RxWIPhyMode <= MODE_OFDM)
+		if ((pRxWI->phy_mode <= MODE_OFDM)
 		    && (OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_AGGREGATION_INUSED)))
 		{
 			RX_BLK_SET_FLAG(pRxBlk, fRX_ARALINK);
@@ -512,22 +512,22 @@ void STAHandleRxDataFrame(
 	}
 	else if (pRxInfo->U2M)
 	{
-		pAd->LastRxRate = (ULONG)((pRxWI->RxWIMCS) +
-									(pRxWI->RxWIBW << 7) +
-									(pRxWI->RxWISGI << 9) +
-									(pRxWI->RxWISTBC << 10) +
-									(pRxWI->RxWIPhyMode << 14));
+		pAd->LastRxRate = (ULONG)((pRxWI->mcs) +
+									(pRxWI->bw << 7) +
+									(pRxWI->sgi << 9) +
+									(pRxWI->stbc << 10) +
+									(pRxWI->phy_mode << 14));
 
 #if defined(DOT11Z_TDLS_SUPPORT) || defined(QOS_DLS_SUPPORT)
 		if (RX_BLK_TEST_FLAG(pRxBlk, fRX_DLS)) {
 			MAC_TABLE_ENTRY *pDlsEntry = NULL;
 
-			pDlsEntry = &pAd->MacTab.Content[pRxWI->RxWIWirelessCliID];
-			if (pDlsEntry && (pRxWI->RxWIWirelessCliID < MAX_LEN_OF_MAC_TABLE)) {
+			pDlsEntry = &pAd->MacTab.Content[pRxWI->wcid];
+			if (pDlsEntry && (pRxWI->wcid < MAX_LEN_OF_MAC_TABLE)) {
 				Update_Rssi_Sample(pAd, &pDlsEntry->RssiSample, pRxWI);
-				RTMP_SEM_LOCK(&pAd->MacTabLock);
+				spin_lock_bh(&pAd->MacTabLock);
 				pDlsEntry->NoDataIdleCount = 0;
-				RTMP_SEM_UNLOCK(&pAd->MacTabLock);
+				spin_unlock_bh(&pAd->MacTabLock);
 			}
 		} else
 #endif
@@ -551,8 +551,8 @@ void STAHandleRxDataFrame(
 
 		Update_Rssi_Sample(pAd, &pAd->StaCfg.RssiSample, pRxWI);
 
-		pAd->StaCfg.LastSNR0 = (u8) (pRxWI->RxWISNR0);
-		pAd->StaCfg.LastSNR1 = (u8) (pRxWI->RxWISNR1);
+		pAd->StaCfg.LastSNR0 = (u8) (pRxWI->bbp_rxinfo[0]);
+		pAd->StaCfg.LastSNR1 = (u8) (pRxWI->bbp_rxinfo[1]);
 
 		pAd->RalinkCounters.OneSecRxOkDataCnt++;
 
@@ -560,7 +560,7 @@ void STAHandleRxDataFrame(
 		{
 			pEntry->LastRxRate = pAd->LastRxRate;
 
-			pEntry->freqOffset = (CHAR)(pRxWI->RxWIFOFFSET);
+			pEntry->freqOffset = (CHAR)(pRxWI->bbp_rxinfo[3]);
 			pEntry->freqOffsetValid = true;
 
 		}
@@ -578,7 +578,7 @@ void STAHandleRxDataFrame(
 		}
 
 		if (skb) {
-			pEntry = &pAd->MacTab.Content[pRxWI->RxWIWirelessCliID];
+			pEntry = &pAd->MacTab.Content[pRxWI->wcid];
 
 			/* process complete frame */
 			if (bFragment && (pRxInfo->Decrypted)
@@ -612,7 +612,7 @@ void STAHandleRxMgmtFrame(
 	IN struct rtmp_adapter *pAd,
 	IN RX_BLK *pRxBlk)
 {
-	struct rxwi_nmac *pRxWI = pRxBlk->pRxWI;
+	struct mt7610u_rxwi *pRxWI = pRxBlk->pRxWI;
 	PHEADER_802_11 pHeader = pRxBlk->pHeader;
 	struct sk_buff * skb = pRxBlk->skb;
 	u8 MinSNR = 0;
@@ -638,32 +638,32 @@ void STAHandleRxMgmtFrame(
 		    && (pAd->RxAnt.EvaluatePeriod == 0)) {
 			Update_Rssi_Sample(pAd, &pAd->StaCfg.RssiSample, pRxWI);
 
-			pAd->StaCfg.LastSNR0 = (u8) (pRxWI->RxWISNR0);
-			pAd->StaCfg.LastSNR1 = (u8) (pRxWI->RxWISNR1);
+			pAd->StaCfg.LastSNR0 = (u8) (pRxWI->bbp_rxinfo[0]);
+			pAd->StaCfg.LastSNR1 = (u8) (pRxWI->bbp_rxinfo[1]);
 		}
 
 		if ((pHeader->FC.SubType == SUBTYPE_BEACON) &&
 		    (ADHOC_ON(pAd)) &&
-		    (pRxWI->RxWIWirelessCliID < MAX_LEN_OF_MAC_TABLE)) {
+		    (pRxWI->wcid < MAX_LEN_OF_MAC_TABLE)) {
 			MAC_TABLE_ENTRY *pEntry = NULL;
-			pEntry = &pAd->MacTab.Content[pRxWI->RxWIWirelessCliID];
+			pEntry = &pAd->MacTab.Content[pRxWI->wcid];
 			if (pEntry)
 				Update_Rssi_Sample(pAd, &pEntry->RssiSample, pRxWI);
 		}
 
 		/* First check the size, it MUST not exceed the mlme queue size */
-		if (pRxWI->RxWIMPDUByteCnt > MGMT_DMA_BUFFER_SIZE) {
-			DBGPRINT_ERR(("STAHandleRxMgmtFrame: frame too large, size = %d \n", pRxWI->RxWIMPDUByteCnt));
+		if (pRxWI->MPDUtotalByteCnt > MGMT_DMA_BUFFER_SIZE) {
+			DBGPRINT_ERR(("STAHandleRxMgmtFrame: frame too large, size = %d \n", pRxWI->MPDUtotalByteCnt));
 			break;
 		}
 
 
-		MinSNR = min((CHAR) pRxWI->RxWISNR0, (CHAR) pRxWI->RxWISNR1);
+		MinSNR = min((CHAR) pRxWI->bbp_rxinfo[0], (CHAR) pRxWI->bbp_rxinfo[1]);
 		/* Signal in MLME_QUEUE isn't used, therefore take this item to save min SNR. */
-		REPORT_MGMT_FRAME_TO_MLME(pAd, pRxWI->RxWIWirelessCliID, pHeader,
-					  pRxWI->RxWIMPDUByteCnt,
-					  pRxWI->RxWIRSSI0, pRxWI->RxWIRSSI1,
-					  pRxWI->RxWIRSSI2, MinSNR,
+		REPORT_MGMT_FRAME_TO_MLME(pAd, pRxWI->wcid, pHeader,
+					  pRxWI->MPDUtotalByteCnt,
+					  pRxWI->rssi[0], pRxWI->rssi[1],
+					  pRxWI->rssi[2], MinSNR,
 					  OPMODE_STA);
 
 	} while (false);
@@ -676,7 +676,7 @@ void STAHandleRxControlFrame(
 	IN struct rtmp_adapter *pAd,
 	IN RX_BLK *pRxBlk)
 {
-	struct rxwi_nmac *pRxWI = pRxBlk->pRxWI;
+	struct mt7610u_rxwi *pRxWI = pRxBlk->pRxWI;
 	PHEADER_802_11 pHeader = pRxBlk->pHeader;
 	struct sk_buff * skb = pRxBlk->skb;
 	bool retStatus;
@@ -685,7 +685,7 @@ void STAHandleRxControlFrame(
 	switch (pHeader->FC.SubType) {
 	case SUBTYPE_BLOCK_ACK_REQ:
 		{
-			retStatus = CntlEnqueueForRecv(pAd, pRxWI->RxWIWirelessCliID, (pRxWI->RxWIMPDUByteCnt), (PFRAME_BA_REQ) pHeader);
+			retStatus = CntlEnqueueForRecv(pAd, pRxWI->wcid, (pRxWI->MPDUtotalByteCnt), (PFRAME_BA_REQ) pHeader);
 			status = (retStatus == true) ? NDIS_STATUS_SUCCESS : NDIS_STATUS_FAILURE;
 		}
 		break;
@@ -724,14 +724,14 @@ bool STARxDoneInterruptHandle(struct rtmp_adapter*pAd, bool argc)
 	u32 RxProcessed, RxPending;
 	bool bReschedule = false;
 	RXD_STRUC *pRxD;
-	struct rxwi_nmac *pRxWI;
-	struct rtmp_rxinfo *pRxInfo;
+	struct mt7610u_rxwi *pRxWI;
+	struct mt7610u_rxinfo *pRxInfo;
 	struct sk_buff *skb;
 	HEADER_802_11 *pHeader;
 	u8 *pData;
 	RX_BLK RxBlk;
-	u8 RXWISize = sizeof(struct rxwi_nmac);
-	RXFCE_INFO *pFceInfo;
+	u8 RXWISize = sizeof(struct mt7610u_rxwi);
+	struct mt7610u_rxfce_info_pkt *pFceInfo;
 	bool bCmdRspPacket = false;
 
 	RxProcessed = RxPending = 0;
@@ -771,7 +771,7 @@ bool STARxDoneInterruptHandle(struct rtmp_adapter*pAd, bool argc)
 		pFceInfo = RxBlk.pRxFceInfo;
 		pRxInfo = RxBlk.pRxInfo;
 		pData = skb->data;
-		pRxWI = (struct rxwi_nmac *)pData;
+		pRxWI = (struct mt7610u_rxwi *)pData;
 		pHeader = (PHEADER_802_11) (pData + RXWISize);
 
 		// TODO: shiang-6590, handle packet from other ports
@@ -801,18 +801,18 @@ bool STARxDoneInterruptHandle(struct rtmp_adapter*pAd, bool argc)
 		RxBlk.pHeader = pHeader;
 		RxBlk.skb = skb;
 		RxBlk.pData = (u8 *) pHeader;
-		RxBlk.DataSize = pRxWI->RxWIMPDUByteCnt;
+		RxBlk.DataSize = pRxWI->MPDUtotalByteCnt;
 		RxBlk.pRxInfo = pRxInfo;
 		RxBlk.Flags = 0;
 		SET_PKT_OPMODE_STA(&RxBlk);
 
 		/* Increase Total receive byte counter after real data received no mater any error or not */
-		pAd->RalinkCounters.ReceivedByteCount += pRxWI->RxWIMPDUByteCnt;
-		pAd->RalinkCounters.OneSecReceivedByteCount += pRxWI->RxWIMPDUByteCnt;
+		pAd->RalinkCounters.ReceivedByteCount += pRxWI->MPDUtotalByteCnt;
+		pAd->RalinkCounters.OneSecReceivedByteCount += pRxWI->MPDUtotalByteCnt;
 		pAd->RalinkCounters.RxCount++;
 		INC_COUNTER64(pAd->WlanCounters.ReceivedFragmentCount);
 
-		if (pRxWI->RxWIMPDUByteCnt < 14) {
+		if (pRxWI->MPDUtotalByteCnt < 14) {
 			Status = NDIS_STATUS_FAILURE;
 
 			/* ULLI : fix memory leak, free skb */
@@ -1158,9 +1158,9 @@ int STASendPacket(
 
 	{
 		/* Make sure SendTxWait queue resource won't be used by other threads */
-		RTMP_IRQ_LOCK(&pAd->irq_lock, IrqFlags);
+		spin_lock_bh(&pAd->irq_lock);
 		if (pAd->TxSwQueue[QueIdx].Number >= pAd->TxSwQMaxLen) {
-			RTMP_IRQ_UNLOCK(&pAd->irq_lock, IrqFlags);
+			spin_unlock_bh(&pAd->irq_lock);
 #ifdef BLOCK_NET_IF
 			StopNetIfQueue(pAd, QueIdx, pPacket);
 #endif /* BLOCK_NET_IF */
@@ -1170,7 +1170,7 @@ int STASendPacket(
 		} else {
 				InsertTailQueueAc(pAd, pEntry, &pAd->TxSwQueue[QueIdx], PACKET_TO_QUEUE_ENTRY(pPacket));
 		}
-		RTMP_IRQ_UNLOCK(&pAd->irq_lock, IrqFlags);
+		spin_unlock_bh(&pAd->irq_lock);
 	}
 
 	if ((pAd->CommonCfg.BACapability.field.AutoBA == true) &&
@@ -1243,8 +1243,7 @@ int RTMPFreeTXDRequest(
 	case QID_HCCA:
 		{
 			pHTTXContext = &pAd->TxContext[QueIdx];
-			RTMP_IRQ_LOCK(&pAd->TxContextQueueLock[QueIdx],
-				      IrqFlags);
+			spin_lock_bh(&pAd->TxContextQueueLock[QueIdx]);
 			if ((pHTTXContext->CurWritePosition !=
 			     pHTTXContext->ENextBulkOutPosition)
 			    || (pHTTXContext->IRPPending == true)) {
@@ -1252,8 +1251,7 @@ int RTMPFreeTXDRequest(
 			} else {
 				Status = NDIS_STATUS_SUCCESS;
 			}
-			RTMP_IRQ_UNLOCK(&pAd->TxContextQueueLock[QueIdx],
-					IrqFlags);
+			spin_unlock_bh(&pAd->TxContextQueueLock[QueIdx]);
 		}
 		break;
 
@@ -1428,7 +1426,7 @@ void STABuildCommon802_11Header(struct rtmp_adapter*pAd, TX_BLK *pTxBlk)
 	bool bDLSFrame = false;
 	INT DlsEntryIndex = 0;
 #endif /* QOS_DLS_SUPPORT */
-	u8 TXWISize = sizeof(struct txwi_nmac);
+	u8 TXWISize = sizeof(struct mt7610u_txwi);
 
 	/* MAKE A COMMON 802.11 HEADER */
 
@@ -1605,7 +1603,7 @@ static inline u8 *STA_Build_ARalink_Frame_Header(
 	struct sk_buff * pNextPacket;
 	u32 nextBufLen;
 	PQUEUE_ENTRY pQEntry;
-	u8 TXWISize = sizeof(struct txwi_nmac);
+	u8 TXWISize = sizeof(struct mt7610u_txwi);
 
 	STAFindCipherAlgorithm(pAd, pTxBlk);
 	STABuildCommon802_11Header(pAd, pTxBlk);
@@ -1659,7 +1657,7 @@ static inline u8 *STA_Build_AMSDU_Frame_Header(
 {
 	u8 *pHeaderBufPtr;
 	HEADER_802_11 *pHeader_802_11;
-	u8 TXWISize = sizeof(struct txwi_nmac);
+	u8 TXWISize = sizeof(struct mt7610u_txwi);
 
 	STAFindCipherAlgorithm(pAd, pTxBlk);
 	STABuildCommon802_11Header(pAd, pTxBlk);
@@ -1709,7 +1707,7 @@ void STA_AMPDU_Frame_Tx(
 	bool bVLANPkt;
 	PQUEUE_ENTRY pQEntry;
 	bool 		bHTCPlus;
-	u8 TXWISize = sizeof(struct txwi_nmac);
+	u8 TXWISize = sizeof(struct mt7610u_txwi);
 
 
 	ASSERT(pTxBlk);
@@ -1935,9 +1933,9 @@ void STA_AMPDU_Frame_Tx(
 		if ((pMacEntry->isCached)
 		)
 		{
-			RTMPWriteTxWI_Cache(pAd, (struct txwi_nmac *) (&pTxBlk->HeaderBuf[TXINFO_SIZE]), pTxBlk);
+			RTMPWriteTxWI_Cache(pAd, (struct mt7610u_txwi *) (&pTxBlk->HeaderBuf[TXINFO_SIZE]), pTxBlk);
 		} else {
-			RTMPWriteTxWI_Data(pAd, (struct txwi_nmac *) (&pTxBlk->HeaderBuf[TXINFO_SIZE]), pTxBlk);
+			RTMPWriteTxWI_Data(pAd, (struct mt7610u_txwi *) (&pTxBlk->HeaderBuf[TXINFO_SIZE]), pTxBlk);
 
 			memset((u8 *) (&pMacEntry->CachedBuf[0]), 0, sizeof (pMacEntry->CachedBuf));
 			memmove((u8 *) (&pMacEntry->CachedBuf[0]), (u8 *) (&pTxBlk->HeaderBuf[TXINFO_SIZE]), (pHeaderBufPtr -(u8 *) (&pTxBlk->HeaderBuf[TXINFO_SIZE])));
@@ -2017,7 +2015,7 @@ void STA_AMSDU_Frame_Tx(
 			pHeaderBufPtr = STA_Build_AMSDU_Frame_Header(pAd, pTxBlk);
 
 			/* NOTE: TxWI->TxWIMPDUByteCnt will be updated after final frame was handled. */
-			RTMPWriteTxWI_Data(pAd, (struct txwi_nmac *) (&pTxBlk->HeaderBuf[TXINFO_SIZE]), pTxBlk);
+			RTMPWriteTxWI_Data(pAd, (struct mt7610u_txwi *) (&pTxBlk->HeaderBuf[TXINFO_SIZE]), pTxBlk);
 		} else {
 			pHeaderBufPtr = &pTxBlk->HeaderBuf[0];
 			padding = ROUND_UP(LENGTH_AMSDU_SUBFRAMEHEAD + subFramePayloadLen, 4) -
@@ -2109,7 +2107,7 @@ void STA_Legacy_Frame_Tx(struct rtmp_adapter*pAd, TX_BLK *pTxBlk)
 	USHORT FreeNumber = 0;
 	bool bVLANPkt;
 	PQUEUE_ENTRY pQEntry;
-	u8 TXWISize = sizeof(struct txwi_nmac);
+	u8 TXWISize = sizeof(struct mt7610u_txwi);
 
 	ASSERT(pTxBlk);
 
@@ -2252,7 +2250,7 @@ void STA_Legacy_Frame_Tx(struct rtmp_adapter*pAd, TX_BLK *pTxBlk)
 	   use Wcid as Key Index
 	 */
 
-	RTMPWriteTxWI_Data(pAd, (struct txwi_nmac *) (&pTxBlk->HeaderBuf[TXINFO_SIZE]), pTxBlk);
+	RTMPWriteTxWI_Data(pAd, (struct mt7610u_txwi *) (&pTxBlk->HeaderBuf[TXINFO_SIZE]), pTxBlk);
 
 	HAL_WriteTxResource(pAd, pTxBlk, true, &FreeNumber);
 
@@ -2320,7 +2318,7 @@ void STA_ARalink_Frame_Tx(
 			   It's ok write the TxWI here, because the TxWI->TxWIMPDUByteCnt
 			   will be updated after final frame was handled.
 			 */
-			RTMPWriteTxWI_Data(pAd, (struct txwi_nmac *) (&pTxBlk->HeaderBuf[TXINFO_SIZE]), pTxBlk);
+			RTMPWriteTxWI_Data(pAd, (struct mt7610u_txwi *) (&pTxBlk->HeaderBuf[TXINFO_SIZE]), pTxBlk);
 
 
 			/*
@@ -2415,7 +2413,7 @@ void STA_Fragment_Frame_Tx(
 	u8 *tmp_ptr = NULL;
 	u32 buf_offset = 0;
 #endif /* SOFT_ENCRYPT */
-	u8 TXWISize = sizeof(struct txwi_nmac);
+	u8 TXWISize = sizeof(struct mt7610u_txwi);
 
 	ASSERT(pTxBlk);
 
@@ -2675,7 +2673,7 @@ void STA_Fragment_Frame_Tx(
 		}
 #endif /* SOFT_ENCRYPT */
 
-		RTMPWriteTxWI_Data(pAd, (struct txwi_nmac *) (&pTxBlk->HeaderBuf[TXINFO_SIZE]), pTxBlk);
+		RTMPWriteTxWI_Data(pAd, (struct mt7610u_txwi *) (&pTxBlk->HeaderBuf[TXINFO_SIZE]), pTxBlk);
 		HAL_WriteFragTxResource(pAd, pTxBlk, fragNum, &freeCnt);
 
 #ifdef DBG_CTRL_SUPPORT
